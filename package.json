@@ -1,0 +1,23 @@
+{
+  "name": "request",
+  "version": "1.0.0",
+  "description": "Easy request sender",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iMagicKey/request.git"
+  },
+  "keywords": [
+    "request",
+    "node"
+  ],
+  "author": "iMagicKey",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/iMagicKey/request/issues"
+  },
+  "homepage": "https://github.com/iMagicKey/request#readme"
+}
