@@ -49,18 +49,14 @@ function Request(url, options = {}) {
             })
 
             output.on('end', () => {
-                return resolve({
-                    ...res,
-                    buffer: Buffer.concat(buffers)
-                })
+                res.buffer = Buffer.concat(buffers)
+                return resolve(res)
             })
         })
 
         request.on('error', (err) => {
-            return reject({
-                ...err,
-                buffer: Buffer.concat(buffers)
-            })
+            err.buffer = Buffer.concat(buffers)
+            return reject(err)
         })
 
         if (requestOptions.body) {
