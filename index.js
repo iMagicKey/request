@@ -2,19 +2,27 @@ const https = require('https')
 const http = require('http')
 const zlib = require('zlib')
 
+const FormData = require('./modules/multipartform')
+
 function Request(url, options = {}) {
     let requestOptions = {
         headers: {},
         ...options,
     }
- 
+
+    if (requestOptions.formData) {
+        let formData = FormData(requestOptions.formData)
+        requestOptions.formData = formData.dataStream
+        requestOptions.headers = requestOptions.headers ||  {}
+        requestOptions.headers['Content-Type'] = `multipart/form-data; boundary=${formData.boundary}`
+    }
+
     let requester = url.indexOf('https:') != -1 ? https : http
 
     return new Promise((resolve, reject) => {
         let buffers = []
         
         let request = requester.request(url, requestOptions, (res) => {
-
             let output
             switch (res.headers['content-encoding']) {
                 case 'br':
@@ -59,11 +67,22 @@ function Request(url, options = {}) {
             return reject(err)
         })
 
-        if (requestOptions.body) {
-            request.write(requestOptions.body)
+        let requestData = requestOptions.formData || requestOptions.body
+        if (requestData) {
+            if (requestData.readable) {
+                requestData.pipe(request)
+                requestData.on('finish', () => {
+                    request.end()
+                })
+            } else {
+                if (typeof requestData == 'string' || requestData instanceof Buffer || requestData instanceof Uint8Array) {
+                    request.write(requestData)
+                }
+                request.end()
+            }
+        } else {
+            request.end()
         }
-
-        request.end()
     })
 }
 
