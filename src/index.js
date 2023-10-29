@@ -1,52 +1,41 @@
-const https = require('https')
-const http = require('http')
-const zlib = require('zlib')
+import http from 'http'
+import https from 'https'
+import zlib from 'zlib'
+import createMultipartForm from './modules/multipartform.js'
 
-const FormData = require('./modules/multipartform')
+export default async function Request(url = '', options = {}) {
+    if (typeof url !== 'string') throw new Error('URL must be a string')
+    if (typeof options !== 'object') throw new Error('Options must be an object')
 
-function Request(url, options = {}) {
     let requestOptions = {
         headers: {},
         ...options,
     }
 
     if (requestOptions.formData) {
-        let formData = FormData(requestOptions.formData)
+        let formData = createMultipartForm(requestOptions.formData)
         requestOptions.formData = formData.dataStream
-        requestOptions.headers = requestOptions.headers ||  {}
+        requestOptions.headers = requestOptions.headers || {}
         requestOptions.headers['Content-Type'] = `multipart/form-data; boundary=${formData.boundary}`
     }
 
-    let requester = url.indexOf('https:') != -1 ? https : http
+    let requester = url.startsWith('https:') ? https : http
 
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         let buffers = []
-        
-        let request = requester.request(url, requestOptions, (res) => {
+
+        let request = requester.request(url, requestOptions, async (res) => {
             let output
             switch (res.headers['content-encoding']) {
                 case 'br':
-                    let br = zlib.createBrotliDecompress()
-                    res.pipe(br)
-                    output = br
-
+                    output = res.pipe(zlib.createBrotliDecompress())
                     break
-                
                 case 'gzip':
-                    let gzip = zlib.createGunzip()
-                    output = zlib.createGunzip()
-                    res.pipe(gzip)
-                    output = gzip
-
+                    output = res.pipe(zlib.createGunzip())
                     break
-
                 case 'deflate':
-                    let deflate = zlib.createInflate()
-                    res.pipe(deflate)
-                    output = deflate
-
+                    output = res.pipe(zlib.createInflate())
                     break
-
                 default:
                     output = res
                     break
@@ -62,10 +51,19 @@ function Request(url, options = {}) {
             })
         })
 
+        request.on('timeout', () => {
+            request.destroy()
+            return reject(new Error('Request timed out'))
+        })
+
         request.on('error', (err) => {
             err.buffer = Buffer.concat(buffers)
             return reject(err)
         })
+
+        if (requestOptions.timeout) {
+            request.setTimeout(requestOptions.timeout)
+        }
 
         let requestData = requestOptions.formData || requestOptions.body
         if (requestData) {
@@ -75,15 +73,10 @@ function Request(url, options = {}) {
                     request.end()
                 })
             } else {
-                if (typeof requestData == 'string' || requestData instanceof Buffer || requestData instanceof Uint8Array) {
-                    request.write(requestData)
-                }
-                request.end()
+                request.end(requestData)
             }
         } else {
             request.end()
         }
     })
 }
-
-module.exports = Request

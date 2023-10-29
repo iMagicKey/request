@@ -1,8 +1,9 @@
 {
-  "name": "request",
+  "name": "imagic-request",
   "version": "1.0.0",
-  "description": "Easy request sender",
-  "main": "index.js",
+  "description": "Easy http request sender",
+  "main": "src/index.js",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -12,12 +13,16 @@
   },
   "keywords": [
     "request",
-    "node"
+    "node",
+    "http"
   ],
   "author": "iMagicKey",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/iMagicKey/request/issues"
   },
-  "homepage": "https://github.com/iMagicKey/request#readme"
+  "homepage": "https://github.com/iMagicKey/request#readme",
+  "engines": {
+    "node": ">=18"
+  }
 }

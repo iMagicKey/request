@@ -1,13 +1,13 @@
-const stream = require('stream')
-const path = require('path')
+import stream from 'stream'
+import path from 'path'
 
-module.exports = function (fields) {
-    this.stream = new stream.Duplex
+export default function createMultipartForm(fields) {
+    this.stream = new stream.Duplex()
     this.fields = fields
     this.reading = false
     this.defaultMimeType = 'application/octet-stream'
 
-    this.boundary = '-----';
+    this.boundary = '-----'
     for (let i = 0; i < 24; i++) {
         this.boundary += Math.floor(Math.random() * 10).toString(16)
     }
@@ -15,7 +15,7 @@ module.exports = function (fields) {
     this.stream._read = async () => {
         if (this.reading == false) {
             this.reading = true
-            
+
             for (let fieldName in this.fields) {
                 await this.pushField(fieldName, this.fields[fieldName])
             }
@@ -34,35 +34,35 @@ module.exports = function (fields) {
     this.pushField = (fieldName, fieldData) => {
         return new Promise((resolve) => {
             this.stream.push(Buffer.from(this.boundary, 'utf8'))
-            
+
             if (fieldData.readable) {
-                let mimeType =  this.defaultMimeType
+                let mimeType = this.defaultMimeType
                 let filename = 'filename'
 
                 if (fieldData.path) {
-                    mimeType = this.getFileMiemType(fieldData.path)
+                    mimeType = this.getFileMimeType(fieldData.path)
                     filename = path.basename(fieldData.path)
                 }
-                
+
                 this.stream.push(Buffer.from(`\r\nContent-Disposition: form-data; name="${fieldName}"; filename="${filename}"`, 'utf8'))
                 this.stream.push(Buffer.from(`\r\nContent-Type: ${mimeType}\r\n\r\n`, 'utf8'))
-                
-                fieldData.pipe(this.stream, {end: false})
+
+                fieldData.pipe(this.stream, { end: false })
                 fieldData.on('end', () => {
                     this.stream.push(Buffer.from(`\r\n`))
-                    
-                    resolve() 
+
+                    resolve()
                 })
             } else {
                 this.stream.push(Buffer.from(`\r\nContent-Disposition: form-data; name="${fieldName}"`, 'utf8'))
                 this.stream.push(Buffer.from(`\r\n\r\n${fieldData.toString()}\r\n`, 'utf8'))
-    
-                resolve() 
+
+                resolve()
             }
         })
     }
 
-    this.getFileMiemType = (filepath) => {
+    this.getFileMimeType = (filepath) => {
         let mimeTypes = {
             json: 'application/json',
             pdf: 'application/pdf',
@@ -115,19 +115,19 @@ module.exports = function (fields) {
             '3gpp': 'video/3gpp',
             '3gp': 'video/3gpp',
             '3gpp2': 'video/3gpp2',
-            '3g2': 'video/3gpp2'
-          }
+            '3g2': 'video/3gpp2',
+        }
 
-          let ext = path.extname(filepath).slice(1)
-          if (ext in mimeTypes) {
-              return mimeTypes[ext]
-          }
-          
-          return this.defaultMimeType
+        let ext = path.extname(filepath).slice(1)
+        if (ext in mimeTypes) {
+            return mimeTypes[ext]
+        }
+
+        return this.defaultMimeType
     }
 
     return {
         dataStream: this.stream,
-        boundary: this.boundary.slice(2)
+        boundary: this.boundary.slice(2),
     }
-}           
+}
