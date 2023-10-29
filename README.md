@@ -3,25 +3,24 @@
 ## Installing
 
 ```shell
-npm install imagickey/request
+npm install imagic-request
 ```
 
 ## How to use
 
 ```js
-const request = require('request');
+import request from '../src/index.js'
 
-request('http://www.google.com', options = {})
-    .then(res => {
-        console.log('statusCode:', res.statusCode)  // Request status code
-        console.log('body as buffer:', res.buffer)  // Received buffer
-        console.log('body as string:', res.buffer.toString())  // Received buffer
+request('https://www.google.com/', {
+    dns: '8.8.8.8',
+})
+    .then((res) => {
+        console.log(res.statusCode)
     })
-    .catch(err => {
-        console.log('err', err) // Request error
-        console.log('body as buffer:', err.buffer)  // Received data (for example in 404 or 502 status code)
+    .catch((err) => {
+        console.log(err)
     })
-;
+
 ```
 
 ## Options
