@@ -1,11 +1,11 @@
-import http from 'http'
-import https from 'https'
-import zlib from 'zlib'
+import http from 'node:http'
+import https from 'node:https'
+import zlib from 'node:zlib'
 import createMultipartForm from './modules/multipartform.js'
 
-export default async function Request(url = '', options = {}) {
+async function Request(url = '', options = {}) {
     if (typeof url !== 'string') throw new Error('URL must be a string')
-    if (typeof options !== 'object') throw new Error('Options must be an object')
+    if (typeof options !== 'object' || options === null) throw new Error('Options must be an object')
 
     let requestOptions = {
         headers: {},
@@ -21,10 +21,10 @@ export default async function Request(url = '', options = {}) {
 
     let requester = url.startsWith('https:') ? https : http
 
-    return new Promise(async (resolve, reject) => {
+    return new Promise((resolve, reject) => {
         let buffers = []
 
-        let request = requester.request(url, requestOptions, async (res) => {
+        let request = requester.request(url, requestOptions, (res) => {
             let output
             switch (res.headers['content-encoding']) {
                 case 'br':
@@ -42,12 +42,17 @@ export default async function Request(url = '', options = {}) {
             }
 
             output.on('data', (data) => {
-                buffers.push(Buffer.from(data, 'binary'))
+                buffers.push(Buffer.isBuffer(data) ? data : Buffer.from(data))
             })
 
             output.on('end', () => {
                 res.buffer = Buffer.concat(buffers)
                 return resolve(res)
+            })
+
+            output.on('error', (err) => {
+                err.buffer = Buffer.concat(buffers)
+                return reject(err)
             })
         })
 
@@ -80,3 +85,6 @@ export default async function Request(url = '', options = {}) {
         }
     })
 }
+
+export { Request }
+export default Request
