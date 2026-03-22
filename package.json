@@ -1,7 +1,7 @@
 {
   "name": "imagic-request",
   "version": "1.0.2",
-  "description": "Easy http request sender",
+  "description": "Send HTTP requests with support for JSON, binary, multipart, and compressed responses",
   "type": "module",
   "exports": {
     ".": "./src/index.js",

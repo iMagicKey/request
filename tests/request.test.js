@@ -4,6 +4,7 @@ import http from 'node:http'
 import zlib from 'node:zlib'
 import { Readable } from 'node:stream'
 import Request, { Request as NamedRequest } from '../src/index.js'
+import createMultipartForm from '../src/modules/multipartform.js'
 
 // ---------------------------------------------------------------------------
 // Local test server
@@ -371,5 +372,69 @@ describe('Request', () => {
             let json = JSON.parse(res.buffer.toString())
             expect(json.method).to.equal('PATCH')
         })
+    })
+})
+
+describe('multipart MIME types', () => {
+    function collectStream(stream) {
+        return new Promise((resolve, reject) => {
+            let chunks = []
+            stream.on('data', (chunk) => chunks.push(chunk))
+            stream.on('end', () => resolve(Buffer.concat(chunks).toString()))
+            stream.on('error', reject)
+        })
+    }
+
+    it('assigns correct MIME type for .docx files', async () => {
+        let readable = Readable.from(Buffer.from('data'))
+        readable.readable = true
+        readable.path = 'test.docx'
+        let { dataStream } = createMultipartForm({ file: readable })
+        let body = await collectStream(dataStream)
+        expect(body).to.include('application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    })
+
+    it('assigns correct MIME type for .xlsx files', async () => {
+        let readable = Readable.from(Buffer.from('data'))
+        readable.readable = true
+        readable.path = 'test.xlsx'
+        let { dataStream } = createMultipartForm({ file: readable })
+        let body = await collectStream(dataStream)
+        expect(body).to.include('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    })
+
+    it('assigns correct MIME type for .pptx files', async () => {
+        let readable = Readable.from(Buffer.from('data'))
+        readable.readable = true
+        readable.path = 'test.pptx'
+        let { dataStream } = createMultipartForm({ file: readable })
+        let body = await collectStream(dataStream)
+        expect(body).to.include('application/vnd.openxmlformats-officedocument.presentationml.presentation')
+    })
+})
+
+describe('multipart stream error handling', () => {
+    it('rejects the promise when a readable stream emits an error', async () => {
+        let errReadable = new Readable({
+            read() {
+                process.nextTick(() => this.emit('error', new Error('stream failure')))
+            },
+        })
+        errReadable.readable = true
+        errReadable.path = 'test.txt'
+
+        let { dataStream } = createMultipartForm({ file: errReadable })
+
+        try {
+            await new Promise((resolve, reject) => {
+                let chunks = []
+                dataStream.on('data', (chunk) => chunks.push(chunk))
+                dataStream.on('end', () => resolve(Buffer.concat(chunks)))
+                dataStream.on('error', reject)
+            })
+            expect.fail('Should have rejected')
+        } catch (err) {
+            expect(err.message).to.equal('stream failure')
+        }
     })
 })

@@ -20,13 +20,13 @@ export default function createMultipartForm(fields) {
             rar: 'application/x-rar-compressed',
             tar: 'application/x-tar',
             torrent: 'application/x-bittorrent',
-            doc: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            docx: 'application/msword',
-            xls: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            xlsx: 'application/vnd.ms-excel',
+            doc: 'application/msword',
+            docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            xls: 'application/vnd.ms-excel',
+            xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12',
-            ppt: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            pptx: 'application/vnd.ms-powerpoint',
+            ppt: 'application/vnd.ms-powerpoint',
+            pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
             dvi: 'application/x-dvi',
             ttf: 'application/x-font-ttf',
             p12: 'application/x-pkcs12',
@@ -73,7 +73,7 @@ export default function createMultipartForm(fields) {
     }
 
     function pushField(fieldName, fieldData) {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             dataStream.push(Buffer.from(boundary, 'utf8'))
 
             if (fieldData.readable) {
@@ -88,6 +88,7 @@ export default function createMultipartForm(fields) {
                 dataStream.push(Buffer.from(`\r\nContent-Disposition: form-data; name="${fieldName}"; filename="${filename}"`, 'utf8'))
                 dataStream.push(Buffer.from(`\r\nContent-Type: ${mimeType}\r\n\r\n`, 'utf8'))
 
+                fieldData.on('error', reject)
                 fieldData.pipe(dataStream, { end: false })
                 fieldData.on('end', () => {
                     dataStream.push(Buffer.from(`\r\n`))
@@ -101,14 +102,16 @@ export default function createMultipartForm(fields) {
         })
     }
 
-    dataStream._read = async () => {
+    dataStream._read = () => {
         if (reading === false) {
             reading = true
-            for (let fieldName in fields) {
-                await pushField(fieldName, fields[fieldName])
-            }
-            dataStream.push(Buffer.from(boundary + '--', 'utf8'))
-            dataStream.push(null)
+            ;(async () => {
+                for (let fieldName in fields) {
+                    await pushField(fieldName, fields[fieldName])
+                }
+                dataStream.push(Buffer.from(boundary + '--', 'utf8'))
+                dataStream.push(null)
+            })().catch((err) => dataStream.destroy(err))
         }
     }
 
