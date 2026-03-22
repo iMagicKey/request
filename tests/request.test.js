@@ -106,6 +106,18 @@ before(() => {
                     return
                 }
 
+                if (req.url === '/headers') {
+                    res.writeHead(200, { 'Content-Type': 'application/json' })
+                    res.end(JSON.stringify({ received: req.headers['x-custom-header'] || null }))
+                    return
+                }
+
+                if (req.url === '/method') {
+                    res.writeHead(200, { 'Content-Type': 'application/json' })
+                    res.end(JSON.stringify({ method: req.method }))
+                    return
+                }
+
                 res.writeHead(404)
                 res.end()
             })
@@ -322,6 +334,42 @@ describe('Request', () => {
             let json = JSON.parse(res.buffer.toString())
             expect(json.contentType).to.match(/^multipart\/form-data; boundary=/)
             expect(json.bodyLength).to.be.greaterThan(0)
+        })
+    })
+
+    describe('custom request headers', () => {
+        it('sends custom header to server', async () => {
+            let res = await Request(`${baseUrl}/headers`, {
+                headers: { 'x-custom-header': 'my-value' },
+            })
+            let json = JSON.parse(res.buffer.toString())
+            expect(json.received).to.equal('my-value')
+        })
+
+        it('default empty headers object does not break request', async () => {
+            let res = await Request(`${baseUrl}/headers`)
+            let json = JSON.parse(res.buffer.toString())
+            expect(json.received).to.equal(null)
+        })
+    })
+
+    describe('HTTP methods — PUT / DELETE', () => {
+        it('sends PUT request with correct method', async () => {
+            let res = await Request(`${baseUrl}/method`, { method: 'PUT' })
+            let json = JSON.parse(res.buffer.toString())
+            expect(json.method).to.equal('PUT')
+        })
+
+        it('sends DELETE request with correct method', async () => {
+            let res = await Request(`${baseUrl}/method`, { method: 'DELETE' })
+            let json = JSON.parse(res.buffer.toString())
+            expect(json.method).to.equal('DELETE')
+        })
+
+        it('sends PATCH request with correct method', async () => {
+            let res = await Request(`${baseUrl}/method`, { method: 'PATCH' })
+            let json = JSON.parse(res.buffer.toString())
+            expect(json.method).to.equal('PATCH')
         })
     })
 })
