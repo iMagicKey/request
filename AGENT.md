@@ -120,3 +120,14 @@ if (res.statusCode === 404) {
 - When both `body` and `formData` are provided, `formData` wins (the pipe branch executes because `requestData.readable` is truthy)
 - There is no redirect following — responses with 3xx status codes are returned as-is
 - No retry logic built in
+
+---
+
+## Knowledge Base
+
+**KB tags for this library:** `imagic-request, api`
+
+Before COMPLEX tasks — invoke `knowledge-reader` with tags above + task-specific tags.
+After completing a task — if a reusable pattern, error, or decision emerged, invoke `knowledge-writer` with `source: imagic-request`.
+
+See `CLAUDE.md` §Knowledge Base Protocol for the full workflow.

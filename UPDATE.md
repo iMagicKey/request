@@ -1,84 +1,30 @@
 # UPDATE — imagic-request
 
-> Аудит проведён: 2026-03-22. Версия на момент аудита: 1.0.1
+> Audit performed: 2026-04-07. Version at time of audit: 1.0.4
 
 ---
 
-## Критические баги (исправить немедленно)
+## Fixed (2026-04-07)
 
-- [ ] **`async` executor в Promise** — `new Promise(async (resolve, reject) => { ... })` — anti-pattern. Если async-код внутри бросает ошибку до первого `await`, Promise не реджектится (ошибка уходит в unhandledRejection). Нужно рефакторить на `async function` + `try/catch` без обёртки в `new Promise`.
-
-- [ ] **Binary data corruption** — `Buffer.from(data, 'binary')` в data-обработчике интерпретирует каждый byte через latin-1, что портит бинарные данные (изображения, сжатые ответы). Правильно: `Buffer.isBuffer(data) ? data : Buffer.from(data)`.
-
-- [ ] **`multipartform.js` — сломан `this` в strict ESM (КРИТИЧНО)** — функция `createMultipartForm` использует `this.stream`, `this.fields`, `this.files` и т.д., но вызывается как обычная функция `createMultipartForm(...)`, а не через `new`. В strict mode ES Modules `this` будет `undefined`, что ломает **все** multipart/file upload запросы. Нужно рефакторить: либо в class, либо в функцию с локальными переменными.
-
-- [ ] **`dns` опция задокументирована, но не реализована** — README описывает `{ dns: '8.8.8.8' }`, но в коде этот параметр игнорируется. Либо реализовать, либо убрать из документации.
+- [x] **Boundary generation** — `Math.random() * 10` produced only digits 0-9, changed to `* 16` for full hex range (0-f)
+- [x] **Lint warnings** — replaced `for..in` with `Object.entries()` in multipartform.js, fixed default import in test
 
 ---
 
-## package.json
+## API improvements (minor bump)
 
-- [ ] Добавить `"exports"`:
-  ```json
-  "exports": { ".": "./src/index.js", "./package.json": "./package.json" }
-  ```
-- [ ] Добавить `"files": ["src", "README.md", "LICENSE"]`
-- [ ] Добавить `"sideEffects": false`
-- [ ] Добавить `devDependencies` — сейчас их нет совсем:
-  ```json
-  "@eslint/js": "^10.0.1",
-  "chai": "^5.x",
-  "eslint": "^10.1.0",
-  "eslint-config-prettier": "^10.1.8",
-  "eslint-plugin-import": "^2.32.0",
-  "eslint-plugin-n": "^17.24.0",
-  "eslint-plugin-prettier": "^5.5.5",
-  "eslint-plugin-promise": "^7.2.1",
-  "globals": "^16.x",
-  "prettier": "^3.8.1"
-  ```
-- [ ] Добавить `"scripts.lint"` и `"scripts.lint:fix"`
-- [ ] Обновить `"scripts.test"`: `"node --test ./tests/**/*.test.js"`
+- [ ] **Default timeout** — add `options.timeout` with a default value (e.g., 30000ms) to prevent hanging requests in production
+- [ ] **`maxBodySize` option** — limit response size to prevent OOM from malicious servers
+- [ ] **`retry` option** — `{ retry: 3, retryDelay: 1000 }` for automatic retries on network errors
+- [ ] **Wrapper return object** — instead of mutating the raw `res`, return `{ statusCode, headers, buffer, body }`. Currently `res.buffer` is added to the Node.js response object, which is a side-effect
+- [ ] **Request body validation** — if `body` is an object, it currently silently sends `[object Object]`. Should throw an error or automatically `JSON.stringify`
+- [ ] **Implement `dns` option** — use `dns.lookup` / `dns.resolve` with a custom server
 
 ---
 
-## ESLint
+## Backlog
 
-- [ ] Создать `eslint.config.js` по стандарту (файл отсутствует)
-- [ ] Создать `.prettierrc.json`
-
----
-
-## Тесты
-
-Тестов нет. Написать `tests/request.test.js`:
-
-- [ ] GET запрос возвращает `statusCode`, `headers`, `buffer`
-- [ ] HTTPS запрос корректно резолвится
-- [ ] Timeout опция вызывает reject с timeout-ошибкой
-- [ ] Multipart/formdata устанавливает корректный `Content-Type` с boundary — **тест найдёт текущий баг**
-- [ ] Бинарные данные не повреждаются (проверка integrity буфера с известными байтами)
-- [ ] Невалидный URL (не строка) бросает синхронно
-- [ ] Сетевая ошибка вызывает reject
-- [ ] Gzip/brotli/deflate декомпрессия возвращает корректный результат
-- [ ] Тело запроса типа object (не строка/Buffer) — должно бросать ошибку
-
----
-
-## Улучшения API (minor bump)
-
-- [ ] **Default timeout** — добавить `options.timeout` по умолчанию (например, 30000мс), чтобы избежать висящих запросов в production
-- [ ] **`maxBodySize` опция** — ограничение размера ответа для предотвращения OOM при злонамеренных серверах
-- [ ] **`retry` опция** — `{ retry: 3, retryDelay: 1000 }` для автоматических повторов при сетевых ошибках
-- [ ] **Wrapper return объект** — вместо мутации сырого `res` возвращать `{ statusCode, headers, buffer, body }`. Сейчас `res.buffer` добавляется к объекту Node.js response, что является side-effect
-- [ ] **Валидация тела запроса** — если `body` это object, сейчас молча отправляется `[object Object]`. Нужно бросать ошибку или автоматически делать `JSON.stringify`
-- [ ] **Реализовать `dns` опцию** — использовать `dns.lookup` / `dns.resolve` с кастомным сервером
-
----
-
-## Задачи (backlog)
-
-- [ ] Поддержка `AbortController` / `AbortSignal` для отмены запросов
-- [ ] Поддержка redirect следования (сейчас отсутствует)
-- [ ] Экспорт TypeScript-типов
-- [ ] Поддержка streamed ответов (без буферизации в памяти)
+- [ ] Support `AbortController` / `AbortSignal` for request cancellation
+- [ ] Support redirect following (currently missing)
+- [ ] Export TypeScript types
+- [ ] Support streamed responses (without buffering in memory)

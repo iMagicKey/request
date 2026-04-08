@@ -7,24 +7,24 @@ async function Request(url = '', options = {}) {
     if (typeof url !== 'string') throw new Error('URL must be a string')
     if (typeof options !== 'object' || options === null) throw new Error('Options must be an object')
 
-    let requestOptions = {
+    const requestOptions = {
         headers: {},
         ...options,
     }
 
     if (requestOptions.formData) {
-        let formData = createMultipartForm(requestOptions.formData)
+        const formData = createMultipartForm(requestOptions.formData)
         requestOptions.formData = formData.dataStream
         requestOptions.headers = requestOptions.headers || {}
         requestOptions.headers['Content-Type'] = `multipart/form-data; boundary=${formData.boundary}`
     }
 
-    let requester = url.startsWith('https:') ? https : http
+    const requester = url.startsWith('https:') ? https : http
 
     return new Promise((resolve, reject) => {
-        let buffers = []
+        const buffers = []
 
-        let request = requester.request(url, requestOptions, (res) => {
+        const request = requester.request(url, requestOptions, (res) => {
             let output
             switch (res.headers['content-encoding']) {
                 case 'br':
@@ -70,9 +70,13 @@ async function Request(url = '', options = {}) {
             request.setTimeout(requestOptions.timeout)
         }
 
-        let requestData = requestOptions.formData || requestOptions.body
+        const requestData = requestOptions.formData || requestOptions.body
         if (requestData) {
             if (requestData.readable) {
+                requestData.on('error', (err) => {
+                    request.destroy()
+                    reject(err)
+                })
                 requestData.pipe(request)
                 requestData.on('finish', () => {
                     request.end()

@@ -2,17 +2,17 @@ import { Duplex } from 'node:stream'
 import path from 'node:path'
 
 export default function createMultipartForm(fields) {
-    let dataStream = new Duplex()
+    const dataStream = new Duplex()
     let reading = false
-    let defaultMimeType = 'application/octet-stream'
+    const defaultMimeType = 'application/octet-stream'
 
     let boundary = '-----'
     for (let i = 0; i < 24; i++) {
-        boundary += Math.floor(Math.random() * 10).toString(16)
+        boundary += Math.floor(Math.random() * 16).toString(16)
     }
 
     function getFileMimeType(filepath) {
-        let mimeTypes = {
+        const mimeTypes = {
             json: 'application/json',
             pdf: 'application/pdf',
             zip: 'application/zip',
@@ -35,7 +35,7 @@ export default function createMultipartForm(fields) {
             spc: 'application/x-pkcs7-certificates',
             p7r: 'application/x-pkcs7-certreqresp',
             p7c: 'application/x-pkcs7-mime',
-            p7m: 'application/x-pkcs7-mim',
+            p7m: 'application/x-pkcs7-mime',
             p7s: 'application/x-pkcs7-signature',
             mp3: 'audio/mpeg',
             aac: 'audio/aac',
@@ -67,7 +67,7 @@ export default function createMultipartForm(fields) {
             '3g2': 'video/3gpp2',
         }
 
-        let ext = path.extname(filepath).slice(1)
+        const ext = path.extname(filepath).slice(1)
         if (ext in mimeTypes) return mimeTypes[ext]
         return defaultMimeType
     }
@@ -106,10 +106,10 @@ export default function createMultipartForm(fields) {
         if (reading === false) {
             reading = true
             ;(async () => {
-                for (let fieldName in fields) {
-                    await pushField(fieldName, fields[fieldName])
+                for (const [fieldName, fieldValue] of Object.entries(fields)) {
+                    await pushField(fieldName, fieldValue)
                 }
-                dataStream.push(Buffer.from(boundary + '--', 'utf8'))
+                dataStream.push(Buffer.from(`${boundary}--`, 'utf8'))
                 dataStream.push(null)
             })().catch((err) => dataStream.destroy(err))
         }
