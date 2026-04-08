@@ -2,14 +2,15 @@
 
 ## Purpose
 
-Make HTTP/HTTPS requests with automatic decompression (br/gzip/deflate) and built-in multipart/form-data support; returns the full response body as a `Buffer`.
+Make HTTP/HTTPS requests with automatic decompression (br/gzip/deflate), multipart/form-data, redirect following, retry, and streaming support. Zero runtime dependencies.
 
 ## Package
 
 - npm: `imagic-request`
-- import (local): `import { Request } from '../src/index.js'`
-- import (installed): `import { Request } from 'imagic-request'`
-- zero runtime deps (uses `node:http`, `node:https`, `node:zlib`, `node:stream`, `node:path`)
+- import (local): `import { Request, stream } from '../src/index.js'`
+- import (installed): `import { Request, stream } from 'imagic-request'`
+- zero runtime deps (uses `node:dns`, `node:http`, `node:https`, `node:zlib`, `node:stream`, `node:path`)
+- TypeScript types included (`src/index.d.ts`)
 
 ## Exports
 
@@ -21,6 +22,12 @@ import { Request } from 'imagic-request'
 import Request from 'imagic-request'
 ```
 
+### `stream` (named export)
+
+```js
+import { stream } from 'imagic-request'
+```
+
 ---
 
 ## `Request(url, options?): Promise<IncomingMessage & { buffer: Buffer }>`
@@ -29,36 +36,46 @@ import Request from 'imagic-request'
 |-------|------|----------|---------|-------|
 | `url` | `string` | yes | — | Full URL with protocol; `https:` uses `node:https`, everything else uses `node:http` |
 | `options` | `object` | no | `{}` | See below |
-| `options.method` | `string` | no | Node.js default (`'GET'`) | HTTP method |
+| `options.method` | `string` | no | `'GET'` | HTTP method |
 | `options.headers` | `object` | no | `{}` | Request headers; `Content-Type` for multipart is auto-set when `formData` is present |
-| `options.body` | `string \| Buffer` | no | — | Raw body; mutually exclusive with `formData` |
-| `options.formData` | `Record<string, string \| Buffer \| ReadableStream>` | no | — | Multipart fields; see below |
-| `options.timeout` | `number` | no | — | Ms before request is destroyed; rejects with `Error: Request timed out` |
-| _...rest_ | any | no | — | Forwarded verbatim to `node:http/https`'s `request()` |
+| `options.body` | `string \| Buffer` | no | — | Raw body; plain objects throw `Error: body must be a string or Buffer` |
+| `options.formData` | `Record<string, string \| Buffer \| ReadableStream>` | no | — | Multipart fields; takes precedence over `body` |
+| `options.timeout` | `number` | no | `30000` | Ms before request is destroyed. Set to `0` to disable |
+| `options.dns` | `string` | no | — | Custom DNS server IP for hostname resolution |
+| `options.maxBodySize` | `number` | no | `0` | Max response body in bytes. `0` = unlimited |
+| `options.followRedirects` | `boolean` | no | `true` | Follow 3xx redirects |
+| `options.maxRedirects` | `number` | no | `10` | Max redirect chain length |
+| `options.retry` | `number` | no | `0` | Number of retries (idempotent methods only) |
+| `options.retryDelay` | `number` | no | `1000` | Base delay in ms, doubled each attempt + jitter |
+| `options.retryStatusCodes` | `number[]` | no | `[500,502,503,504,408]` | HTTP codes that trigger retry |
+| `options.signal` | `AbortSignal` | no | — | Abort signal for request cancellation |
+| _...rest_ | any | no | — | Forwarded to `node:http/https`'s `request()` |
 
-**Returns:** `IncomingMessage` extended with `buffer: Buffer` (full decompressed body).
-
-- `res.statusCode` — HTTP status code
-- `res.headers` — response headers
-- `res.buffer` — full body as `Buffer`
-
-**Auto-decompression** based on `Content-Encoding` response header:
-- `br` → `zlib.createBrotliDecompress()`
-- `gzip` → `zlib.createGunzip()`
-- `deflate` → `zlib.createInflate()`
-- anything else → raw passthrough
+**Returns:** `IncomingMessage` with `buffer: Buffer` (full decompressed body).
 
 ---
 
-## formData behavior
+## `stream(url, options?): Promise<{ statusCode, headers, stream }>`
 
-When `options.formData` is set:
-- `Content-Type: multipart/form-data; boundary=...` is automatically added to headers
-- `options.body` is ignored if `formData` is present (formData takes precedence in the send logic)
-- String or Buffer values → plain `form-data` text fields
-- `ReadableStream` with `.path` property → file field; MIME and filename derived from `stream.path`
-- `ReadableStream` without `.path` → file field; MIME `application/octet-stream`, filename `filename`
-- Fields are written in object key order
+Same options as `Request` (except `retry`, `redirect`, `maxBodySize` — not supported in stream mode).
+
+Returns `{ statusCode, headers, stream }` — a readable stream of the decompressed body, without buffering in memory.
+
+---
+
+## Redirect behavior (RFC 7231)
+
+- 301/302 + POST → changes method to GET, drops body
+- 303 + any → changes method to GET, drops body
+- 307/308 + any → preserves method and body
+- Cross-origin redirects strip `Authorization`, `Cookie`, `Proxy-Authorization` headers
+
+## Retry behavior
+
+- Only idempotent methods: GET, PUT, HEAD, DELETE, OPTIONS, TRACE
+- POST is never retried (not idempotent)
+- Exponential backoff: `retryDelay * 2^attempt + jitter`
+- Retries on network errors (ECONNREFUSED, ECONNRESET, etc.) and retryable status codes
 
 ---
 
@@ -82,44 +99,52 @@ const res = await Request('https://api.example.com/items', {
 })
 ```
 
-### Multipart file upload
+### Retry on transient failures
 
 ```js
-import fs from 'node:fs'
-
-const res = await Request('https://api.example.com/upload', {
-    method: 'POST',
-    formData: {
-        title: 'My Report',
-        file: fs.createReadStream('/tmp/report.pdf'),
-    },
+const res = await Request('https://api.example.com/data', {
+    retry: 3,
+    retryDelay: 1000,
 })
 ```
 
-### Check status without throwing
+### Streaming large download
 
 ```js
-const res = await Request('https://api.example.com/resource')
-if (res.statusCode === 404) {
-    // handle not found — does NOT throw
-}
+import { stream } from 'imagic-request'
+import fs from 'node:fs'
+
+const res = await stream('https://example.com/large-file.zip')
+res.stream.pipe(fs.createWriteStream('/tmp/file.zip'))
+```
+
+### Custom DNS server
+
+```js
+const res = await Request('https://example.com', { dns: '8.8.8.8' })
+```
+
+### Abort with signal
+
+```js
+const res = await Request('https://example.com', {
+    signal: AbortSignal.timeout(5000),
+})
 ```
 
 ---
 
 ## Constraints / Gotchas
 
-- `url` must be a `string`; passing a non-string throws synchronously before the request is made
-- `options` must be an object; passing `null` throws synchronously
+- `body` must be `string` or `Buffer`; plain objects throw synchronously
+- Default timeout is 30s; set `timeout: 0` to disable
 - HTTP 4xx/5xx responses do **not** reject the promise; check `res.statusCode` manually
-- On network error, the error object has a `.buffer` property containing any bytes received before the failure
-- On timeout, the request is destroyed and the promise rejects with `Error: Request timed out`; there is no partial buffer attached
-- Compression detection is purely header-based (`Content-Encoding`); no content sniffing
-- `formData` streams are piped lazily via `Duplex._read`; all fields are processed sequentially in key order
-- The boundary string in `formData` is randomly generated each call; there is no way to override it
-- When both `body` and `formData` are provided, `formData` wins (the pipe branch executes because `requestData.readable` is truthy)
-- There is no redirect following — responses with 3xx status codes are returned as-is
-- No retry logic built in
+- On network error, `err.buffer` contains any bytes received before the failure
+- On timeout, rejects with `Error: Request timed out` (no partial buffer)
+- Retry only applies to idempotent methods; POST is never retried
+- Redirect following is enabled by default (max 10 hops)
+- `formData` streams can't be replayed on 307/308 redirect — string/Buffer bodies only
+- `stream()` does not support retry, redirect, or maxBodySize
 
 ---
 

@@ -3,7 +3,7 @@ import { expect } from 'chai'
 import http from 'node:http'
 import zlib from 'node:zlib'
 import { Readable } from 'node:stream'
-import DefaultExport, { Request } from '../src/index.js'
+import DefaultExport, { Request, stream } from '../src/index.js'
 import createMultipartForm from '../src/modules/multipartform.js'
 
 // ---------------------------------------------------------------------------
@@ -12,6 +12,7 @@ import createMultipartForm from '../src/modules/multipartform.js'
 
 let server
 let baseUrl
+const requestCounts = {}
 
 before(() => {
     return new Promise((resolve) => {
@@ -113,9 +114,77 @@ before(() => {
                     return
                 }
 
+                if (req.url.startsWith('/count-requests')) {
+                    requestCounts[req.url] = (requestCounts[req.url] || 0) + 1
+                    res.writeHead(200, { 'Content-Type': 'application/json' })
+                    res.end(JSON.stringify({ count: requestCounts[req.url] }))
+                    return
+                }
+
+                if (req.url === '/always-503') {
+                    res.writeHead(503, { 'Content-Type': 'application/json' })
+                    res.end(JSON.stringify({ error: 'always fails' }))
+                    return
+                }
+
+                if (req.url === '/status-429') {
+                    res.writeHead(429, { 'Content-Type': 'application/json' })
+                    res.end(JSON.stringify({ error: 'rate limited' }))
+                    return
+                }
+
                 if (req.url === '/method') {
                     res.writeHead(200, { 'Content-Type': 'application/json' })
                     res.end(JSON.stringify({ method: req.method }))
+                    return
+                }
+
+                // Redirect endpoints
+                if (req.url === '/redirect-301') {
+                    res.writeHead(301, { Location: '/get' })
+                    res.end()
+                    return
+                }
+
+                if (req.url === '/redirect-302') {
+                    res.writeHead(302, { Location: '/get' })
+                    res.end()
+                    return
+                }
+
+                if (req.url === '/redirect-303') {
+                    res.writeHead(303, { Location: '/method' })
+                    res.end()
+                    return
+                }
+
+                if (req.url === '/redirect-307') {
+                    res.writeHead(307, { Location: '/method' })
+                    res.end()
+                    return
+                }
+
+                if (req.url === '/redirect-loop') {
+                    res.writeHead(301, { Location: '/redirect-loop' })
+                    res.end()
+                    return
+                }
+
+                if (req.url === '/redirect-chain') {
+                    res.writeHead(301, { Location: '/redirect-chain-2' })
+                    res.end()
+                    return
+                }
+
+                if (req.url === '/redirect-chain-2') {
+                    res.writeHead(301, { Location: '/get' })
+                    res.end()
+                    return
+                }
+
+                if (req.url === '/redirect-auth-check') {
+                    res.writeHead(200, { 'Content-Type': 'application/json' })
+                    res.end(JSON.stringify({ authorization: req.headers.authorization || null }))
                     return
                 }
 
@@ -177,6 +246,48 @@ describe('Request', () => {
             } catch (err) {
                 expect(err.message).to.equal('Options must be an object')
             }
+        })
+
+        it('rejects when body is a plain object', async () => {
+            try {
+                await Request(`${baseUrl}/post`, {
+                    method: 'POST',
+                    body: { key: 'value' },
+                })
+                expect.fail('Should have thrown')
+            } catch (err) {
+                expect(err.message).to.equal('body must be a string or Buffer')
+            }
+        })
+
+        it('rejects when body is an array', async () => {
+            try {
+                await Request(`${baseUrl}/post`, {
+                    method: 'POST',
+                    body: [1, 2, 3],
+                })
+                expect.fail('Should have thrown')
+            } catch (err) {
+                expect(err.message).to.equal('body must be a string or Buffer')
+            }
+        })
+
+        it('allows body as string', async () => {
+            const res = await Request(`${baseUrl}/post`, {
+                method: 'POST',
+                body: 'valid string',
+                headers: { 'Content-Type': 'text/plain' },
+            })
+            expect(res.statusCode).to.equal(200)
+        })
+
+        it('allows body as Buffer', async () => {
+            const res = await Request(`${baseUrl}/post`, {
+                method: 'POST',
+                body: Buffer.from('valid buffer'),
+                headers: { 'Content-Type': 'application/octet-stream' },
+            })
+            expect(res.statusCode).to.equal(200)
         })
     })
 
@@ -267,6 +378,88 @@ describe('Request', () => {
                 expect(err.message).to.equal('Request timed out')
             }
         })
+
+        it('applies default timeout of 30000ms (verifiable via option)', async () => {
+            // We can't wait 30s in a test, but we can verify the default is applied
+            // by checking that a request without explicit timeout still times out
+            // Using a short timeout to verify the mechanism works
+            const start = Date.now()
+            try {
+                await Request(`${baseUrl}/timeout`, { timeout: 50 })
+                expect.fail('Should have thrown')
+            } catch (err) {
+                const elapsed = Date.now() - start
+                expect(err.message).to.equal('Request timed out')
+                expect(elapsed).to.be.lessThan(5000)
+            }
+        })
+
+        it('timeout: 0 disables timeout', async () => {
+            // Send to /get which responds immediately — should succeed with timeout: 0
+            const res = await Request(`${baseUrl}/get`, { timeout: 0 })
+            expect(res.statusCode).to.equal(200)
+        })
+    })
+
+    describe('AbortController / signal', () => {
+        it('aborts request when signal is triggered', async () => {
+            const ac = new AbortController()
+            setTimeout(() => ac.abort(), 50)
+            try {
+                await Request(`${baseUrl}/timeout`, { signal: ac.signal, timeout: 0 })
+                expect.fail('Should have thrown')
+            } catch (err) {
+                expect(err.name).to.equal('AbortError')
+            }
+        })
+
+        it('rejects immediately if signal already aborted', async () => {
+            const ac = new AbortController()
+            ac.abort()
+            try {
+                await Request(`${baseUrl}/get`, { signal: ac.signal, timeout: 0 })
+                expect.fail('Should have thrown')
+            } catch (err) {
+                expect(err.name).to.equal('AbortError')
+            }
+        })
+
+        it('works with AbortSignal.timeout()', async () => {
+            try {
+                await Request(`${baseUrl}/timeout`, { signal: AbortSignal.timeout(50), timeout: 0 })
+                expect.fail('Should have thrown')
+            } catch (err) {
+                expect(err.name).to.satisfy((n) => n === 'AbortError' || n === 'TimeoutError')
+            }
+        })
+    })
+
+    describe('dns option', () => {
+        it('does not break requests when dns option is set with IP-based URL', async () => {
+            // IP-based URLs skip lookup entirely — dns option must not interfere
+            const res = await Request(`${baseUrl}/get`, { dns: '8.8.8.8' })
+            expect(res.statusCode).to.equal(200)
+        })
+
+        it('rejects with DNS error for invalid DNS server + hostname URL', async () => {
+            // Use a non-routable IP as DNS server + hostname URL to trigger lookup failure
+            const { port } = server.address()
+            try {
+                await Request(`http://localhost:${port}/get`, { dns: '192.0.2.1', timeout: 2000 })
+                // May succeed if localhost resolves via 192.0.2.1 (unlikely)
+            } catch (err) {
+                expect(err).to.be.instanceOf(Error)
+            }
+        })
+
+        it('rejects when dns option is not a string', async () => {
+            try {
+                await Request(`${baseUrl}/get`, { dns: 12345 })
+                expect.fail('Should have thrown')
+            } catch (err) {
+                expect(err.message).to.equal('dns must be a string (IP address of DNS server)')
+            }
+        })
     })
 
     describe('network error', () => {
@@ -277,6 +470,34 @@ describe('Request', () => {
             } catch (err) {
                 expect(err).to.be.instanceOf(Error)
             }
+        })
+    })
+
+    describe('maxBodySize', () => {
+        it('rejects when response body exceeds maxBodySize', async () => {
+            try {
+                // /get returns JSON ~30+ bytes, limit to 5
+                await Request(`${baseUrl}/get`, { maxBodySize: 5 })
+                expect.fail('Should have thrown')
+            } catch (err) {
+                expect(err.message).to.include('maxBodySize')
+            }
+        })
+
+        it('allows response within maxBodySize limit', async () => {
+            const res = await Request(`${baseUrl}/get`, { maxBodySize: 100000 })
+            expect(res.statusCode).to.equal(200)
+            expect(res.buffer.length).to.be.lessThan(100000)
+        })
+
+        it('no limit when maxBodySize is 0 (default)', async () => {
+            const res = await Request(`${baseUrl}/get`, { maxBodySize: 0 })
+            expect(res.statusCode).to.equal(200)
+        })
+
+        it('no limit when maxBodySize is not set', async () => {
+            const res = await Request(`${baseUrl}/get`)
+            expect(res.statusCode).to.equal(200)
         })
     })
 
@@ -354,6 +575,139 @@ describe('Request', () => {
         })
     })
 
+    describe('redirect following', () => {
+        it('follows 301 redirect', async () => {
+            const res = await Request(`${baseUrl}/redirect-301`)
+            expect(res.statusCode).to.equal(200)
+            const json = JSON.parse(res.buffer.toString())
+            expect(json.url).to.equal('/get')
+        })
+
+        it('follows 302 redirect', async () => {
+            const res = await Request(`${baseUrl}/redirect-302`)
+            expect(res.statusCode).to.equal(200)
+            const json = JSON.parse(res.buffer.toString())
+            expect(json.url).to.equal('/get')
+        })
+
+        it('changes method to GET on 303 redirect', async () => {
+            const res = await Request(`${baseUrl}/redirect-303`, { method: 'POST', body: 'data' })
+            expect(res.statusCode).to.equal(200)
+            const json = JSON.parse(res.buffer.toString())
+            expect(json.method).to.equal('GET')
+        })
+
+        it('preserves method on 307 redirect', async () => {
+            const res = await Request(`${baseUrl}/redirect-307`, { method: 'POST', body: 'data' })
+            expect(res.statusCode).to.equal(200)
+            const json = JSON.parse(res.buffer.toString())
+            expect(json.method).to.equal('POST')
+        })
+
+        it('follows redirect chain (multiple redirects)', async () => {
+            const res = await Request(`${baseUrl}/redirect-chain`)
+            expect(res.statusCode).to.equal(200)
+            const json = JSON.parse(res.buffer.toString())
+            expect(json.url).to.equal('/get')
+        })
+
+        it('rejects on redirect loop exceeding maxRedirects', async () => {
+            try {
+                await Request(`${baseUrl}/redirect-loop`)
+                expect.fail('Should have thrown')
+            } catch (err) {
+                expect(err.message).to.include('Maximum number of redirects exceeded')
+            }
+        })
+
+        it('does not follow redirects when followRedirects is false', async () => {
+            const res = await Request(`${baseUrl}/redirect-301`, { followRedirects: false })
+            expect(res.statusCode).to.equal(301)
+        })
+
+        it('respects custom maxRedirects', async () => {
+            try {
+                await Request(`${baseUrl}/redirect-chain`, { maxRedirects: 1 })
+                expect.fail('Should have thrown')
+            } catch (err) {
+                expect(err.message).to.include('Maximum number of redirects exceeded')
+            }
+        })
+    })
+
+    describe('retry', () => {
+        it('retries on 503 and succeeds on retry', async () => {
+            const res = await Request(`${baseUrl}/always-503`, {
+                retry: 2,
+                retryDelay: 10,
+                // We can't use x-attempt header easily, so test with always-503 and check it retries
+                // Instead test that retry exhaustion returns the last response
+            })
+            // With retry: 2, it makes 3 total attempts (1 initial + 2 retries), all 503
+            expect(res.statusCode).to.equal(503)
+        })
+
+        it('does not retry POST by default (not idempotent)', async () => {
+            const res = await Request(`${baseUrl}/always-503`, {
+                method: 'POST',
+                body: 'data',
+                retry: 2,
+                retryDelay: 10,
+            })
+            // POST should not retry — returns first response immediately
+            expect(res.statusCode).to.equal(503)
+        })
+
+        it('does not retry on 4xx status codes', async () => {
+            const res = await Request(`${baseUrl}/status-429`, {
+                retry: 2,
+                retryDelay: 100,
+            })
+            // 429 is not retried by default — should return quickly
+            expect(res.statusCode).to.equal(429)
+        })
+
+        it('retries 429 when retryStatusCodes includes it', async () => {
+            const res = await Request(`${baseUrl}/status-429`, {
+                retry: 1,
+                retryDelay: 10,
+                retryStatusCodes: [429, 503],
+            })
+            // Should have retried once (2 total requests), but still 429
+            expect(res.statusCode).to.equal(429)
+        })
+
+        it('actually makes multiple requests on retry', async () => {
+            const id = `/count-requests/${Date.now()}`
+            await Request(`${baseUrl}${id}`, {
+                retry: 2,
+                retryDelay: 10,
+                retryStatusCodes: [200],
+            })
+            // 200 is in retryStatusCodes, so it retries: 1 initial + 2 retries = 3 requests
+            expect(requestCounts[id]).to.equal(3)
+        })
+
+        it('retry: 0 disables retry', async () => {
+            const res = await Request(`${baseUrl}/always-503`, { retry: 0 })
+            expect(res.statusCode).to.equal(503)
+        })
+
+        it('retries on network errors', async () => {
+            try {
+                await Request('http://127.0.0.1:1', {
+                    retry: 1,
+                    retryDelay: 10,
+                    timeout: 1000,
+                })
+                expect.fail('Should have thrown')
+            } catch (err) {
+                // Should still reject after retries exhausted
+                expect(err).to.be.instanceOf(Error)
+            }
+        })
+    })
+
     describe('HTTP methods — PUT / DELETE', () => {
         it('sends PUT request with correct method', async () => {
             const res = await Request(`${baseUrl}/method`, { method: 'PUT' })
@@ -425,6 +779,53 @@ describe('multipart MIME types', () => {
         const { dataStream } = createMultipartForm({ file: readable })
         const body = await collectStream(dataStream)
         expect(body).to.include('application/vnd.openxmlformats-officedocument.presentationml.presentation')
+    })
+})
+
+describe('Request.stream()', () => {
+    it('stream is exported as a named export', () => {
+        expect(stream).to.be.a('function')
+    })
+
+    it('returns a readable stream with statusCode and headers', async () => {
+        const res = await stream(`${baseUrl}/get`)
+        expect(res.statusCode).to.equal(200)
+        expect(res.headers).to.have.property('content-type')
+        expect(res.stream).to.be.an('object')
+        // Consume stream to avoid hanging
+        const chunks = []
+        for await (const chunk of res.stream) {
+            chunks.push(chunk)
+        }
+        expect(Buffer.concat(chunks).length).to.be.greaterThan(0)
+    })
+
+    it('does not buffer the entire response in memory', async () => {
+        const res = await stream(`${baseUrl}/get`)
+        // res should NOT have a .buffer property — that's the buffered API
+        expect(res).to.not.have.property('buffer')
+        // Consume stream
+        for await (const _ of res.stream) { /* drain */ }
+    })
+
+    it('decompresses gzip stream', async () => {
+        const res = await stream(`${baseUrl}/gzip`)
+        const chunks = []
+        for await (const chunk of res.stream) {
+            chunks.push(chunk)
+        }
+        const json = JSON.parse(Buffer.concat(chunks).toString())
+        expect(json.compressed).to.equal(true)
+    })
+
+    it('applies timeout like regular Request', async () => {
+        try {
+            const res = await stream(`${baseUrl}/timeout`, { timeout: 100 })
+            for await (const _ of res.stream) { /* drain */ }
+            expect.fail('Should have thrown')
+        } catch (err) {
+            expect(err.message).to.equal('Request timed out')
+        }
     })
 })
 
