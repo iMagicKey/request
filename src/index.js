@@ -35,6 +35,23 @@ const URL_OVERRIDE_OPTIONS = ['protocol', 'hostname', 'host', 'port', 'path', 'd
 const DEFAULT_RETRY_STATUS_CODES = [500, 502, 503, 504, 408]
 const IDEMPOTENT_METHODS = new Set(['GET', 'PUT', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE'])
 
+// The largest delay a Node.js timer can hold. Anything beyond it would fire almost immediately.
+const MAX_DEADLINE = 2 ** 31 - 1
+
+function readDeadline(value = 0) {
+    if (typeof value !== 'number' || !(value >= 0) || value > MAX_DEADLINE) {
+        throw new Error(`deadline must be a number of milliseconds between 0 and ${MAX_DEADLINE}`)
+    }
+    return value
+}
+
+function deadlineError(deadline) {
+    const err = new Error(`Request deadline of ${deadline} ms exceeded`)
+    err.name = 'TimeoutError'
+    err.code = 'ETIMEDOUT'
+    return err
+}
+
 const isStream = (body) => typeof body?.pipe === 'function'
 
 /** The same error node:http raises for an aborted signal. */
@@ -220,9 +237,17 @@ async function Request(url = '', options = {}) {
 
     const method = (requestOptions.method || 'GET').toUpperCase()
     const isIdempotent = IDEMPOTENT_METHODS.has(method)
-    const { signal } = requestOptions
 
-    if (signal?.aborted) throw abortError(signal)
+    // One signal covers every hop, attempt and backoff, so the deadline spans the whole operation.
+    const deadline = readDeadline(requestOptions.deadline)
+    delete requestOptions.deadline
+    const callerSignal = requestOptions.signal
+    const deadlineSignal = deadline > 0 ? AbortSignal.timeout(deadline) : undefined
+    if (deadlineSignal) requestOptions.signal = callerSignal ? AbortSignal.any([callerSignal, deadlineSignal]) : deadlineSignal
+    const { signal } = requestOptions
+    const cancellation = () => (deadlineSignal && signal.reason === deadlineSignal.reason ? deadlineError(deadline) : abortError(signal))
+
+    if (signal?.aborted) throw cancellation()
 
     for (let attempt = 0; ; attempt++) {
         let res
@@ -238,9 +263,8 @@ async function Request(url = '', options = {}) {
                 res = await doRequest(currentUrl, opts, currentBody, timeout, maxBodySize)
             } catch (err) {
                 // A cancelled request is never retried. Depending on timing, the abort can
-                // surface as a reset of the response rather than as an AbortError.
-                if (signal?.aborted && err.name !== 'AbortError') throw Object.assign(abortError(signal), { buffer: err.buffer })
-                if (signal?.aborted) throw err
+                // surface as a reset of the response, so report the actual cause.
+                if (signal?.aborted) throw Object.assign(cancellation(), { buffer: err.buffer })
                 networkError = err
                 break
             }
@@ -293,7 +317,11 @@ async function Request(url = '', options = {}) {
                 const baseDelay = retryDelay * (2 ** attempt)
                 const jitter = Math.floor(Math.random() * baseDelay * 0.2)
                 const delay = baseDelay + jitter
-                await sleep(Math.max(0, delay), undefined, { signal })
+                try {
+                    await sleep(Math.max(0, delay), undefined, { signal })
+                } catch {
+                    throw cancellation()
+                }
                 continue
             }
         }
@@ -341,12 +369,17 @@ function stream(url = '', options = {}) {
     delete requestOptions.body
     delete requestOptions.formData
 
+    const deadline = readDeadline(requestOptions.deadline)
+    delete requestOptions.deadline
+
     const timeout = requestOptions.timeout === undefined ? DEFAULT_TIMEOUT : requestOptions.timeout
     const requester = url.startsWith('https:') ? https : http
 
     return new Promise((resolve, reject) => {
+        let output
+
         const request = requester.request(url, requestOptions, (res) => {
-            const output = decodedBody(res, request.method)
+            output = decodedBody(res, request.method)
             // A decompression error is delivered to whoever reads the stream. Like a plain response,
             // it must not take the process down if the caller attached no 'error' listener.
             if (output !== res) output.on('error', () => {})
@@ -369,6 +402,16 @@ function stream(url = '', options = {}) {
 
         if (timeout) {
             request.setTimeout(timeout)
+        }
+
+        if (deadline > 0) {
+            const timer = setTimeout(() => {
+                const err = deadlineError(deadline)
+                output?.destroy(err)
+                request.destroy(err)
+            }, deadline)
+            timer.unref()
+            request.once('close', () => clearTimeout(timer))
         }
 
         sendBody(request, body, reject)

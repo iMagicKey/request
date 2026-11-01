@@ -40,7 +40,8 @@ import { stream } from 'imagic-request'
 | `options.headers` | `object` | no | `{}` | Request headers; `Content-Type` for multipart is auto-set when `formData` is present |
 | `options.body` | `string \| Buffer` | no | — | Raw body; plain objects throw `Error: body must be a string or Buffer` |
 | `options.formData` | `Record<string, string \| Buffer \| ReadableStream>` | no | — | Multipart fields; takes precedence over `body`. Strings and Buffers are plain fields (Buffers as exact bytes); streams are file parts |
-| `options.timeout` | `number` | no | `30000` | Ms before request is destroyed. Set to `0` to disable |
+| `options.timeout` | `number` | no | `30000` | Socket idle time in ms before the request is destroyed, per hop. A slow but steady response never trips it. Set to `0` to disable |
+| `options.deadline` | `number` | no | `0` | Total limit in ms across connecting, redirects, retries, backoff and body. `0` = none. Rejects with `name: 'TimeoutError'`, `code: 'ETIMEDOUT'` |
 | `options.dns` | `string` | no | — | Custom DNS server IP for hostname resolution |
 | `options.maxBodySize` | `number` | no | `0` | Max response body in bytes. `0` = unlimited |
 | `options.followRedirects` | `boolean` | no | `true` | Follow 3xx redirects |
@@ -58,7 +59,7 @@ import { stream } from 'imagic-request'
 
 ## `stream(url, options?): Promise<{ statusCode, headers, stream }>`
 
-Same options as `Request` (except `retry`, `redirect`, `maxBodySize` — not supported in stream mode).
+Same options as `Request` (except `retry`, `followRedirects`/`maxRedirects`, `maxBodySize` — not supported in stream mode). `body` and `formData` are sent. `deadline` also covers reading the body: the returned stream errors if it has not finished in time.
 
 Returns `{ statusCode, headers, stream }` — a readable stream of the decompressed body, without buffering in memory.
 
@@ -142,7 +143,8 @@ const res = await Request('https://example.com', {
 ## Constraints / Gotchas
 
 - `body` must be `string` or `Buffer`; plain objects throw synchronously
-- Default timeout is 30s; set `timeout: 0` to disable
+- Default timeout is 30s of socket inactivity, not a total limit; set `timeout: 0` to disable. Use `deadline` for a total limit
+- `maxBodySize` defaults to unlimited, so a hostile server can exhaust memory unless it is set
 - HTTP 4xx/5xx responses do **not** reject the promise; check `res.statusCode` manually
 - On network error, `err.buffer` contains any bytes received before the failure
 - On timeout, rejects with `Error: Request timed out` (no partial buffer)

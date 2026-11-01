@@ -37,6 +37,8 @@ Request(
         body?: string | Buffer
         formData?: Record<string, string | Buffer | ReadableStream>
         timeout?: number
+        deadline?: number
+        sensitiveHeaders?: string[]
         // ...any other options accepted by node:http/https request()
     }
 ): Promise<IncomingMessage & { buffer: Buffer }>
@@ -51,7 +53,8 @@ Request(
 | `options.headers` | `object` | Request headers. When `formData` is set, `Content-Type: multipart/form-data; boundary=...` is added automatically. |
 | `options.body` | `string \| Buffer` | Raw request body. Mutually exclusive with `formData`. |
 | `options.formData` | `object` | Fields for a `multipart/form-data` request. String and Buffer values become plain fields (Buffers are sent as raw bytes); `ReadableStream` values become file uploads. |
-| `options.timeout` | `number` | Request timeout in milliseconds. The request is destroyed and an error is thrown on expiry. |
+| `options.timeout` | `number` | Socket idle timeout in milliseconds, per request hop (default: `30000`). The request is destroyed and an error is thrown when no data moves for this long; a slow but steady response never trips it. |
+| `options.deadline` | `number` | Total time limit in milliseconds across connecting, redirects, retries, backoff and the body (default: none). |
 | `options.sensitiveHeaders` | `string[]` | Extra header names to remove when a redirect changes origin. |
 
 Any additional properties in `options` are forwarded directly to `node:http/https`'s `request()` (e.g. `agent`, `hostname`, `auth`).
@@ -117,6 +120,7 @@ Fields are written in the order they appear in the `formData` object. The bounda
 | `url` is not a string | Throws `Error: URL must be a string` |
 | `options` is not an object | Throws `Error: Options must be an object` |
 | `options.timeout` exceeded | Request destroyed; rejects with `Error: Request timed out` |
+| `options.deadline` exceeded | Request destroyed; rejects with an error with `name: 'TimeoutError'` and `code: 'ETIMEDOUT'`; partial data attached as `err.buffer` when the body had started |
 | Network error | Rejects with the underlying Node.js `Error`; partially received data is attached as `err.buffer` |
 | Stream read error on response | Rejects with the underlying error; partial data attached as `err.buffer` |
 

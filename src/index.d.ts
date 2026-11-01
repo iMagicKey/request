@@ -10,8 +10,17 @@ export interface RequestOptions {
     body?: string | Buffer
     /** Multipart form-data fields. Takes precedence over `body`. */
     formData?: Record<string, string | Buffer | Readable>
-    /** Timeout in milliseconds (default: 30000). Set to 0 to disable. */
+    /**
+     * Socket idle timeout in milliseconds (default: 30000). Set to 0 to disable.
+     * It fires when no data moves, per request hop, so a slow but steady response is never stopped by it. See `deadline`.
+     */
     timeout?: number
+    /**
+     * Total time limit in milliseconds, covering connecting, redirects, retries, backoff and reading the body
+     * (default: 0, no limit). On expiry the call rejects with an error whose `name` is `TimeoutError` and `code` is `ETIMEDOUT`.
+     * With `stream()`, the returned stream errors if it has not finished in time.
+     */
+    deadline?: number
     /** Custom DNS server IP address for hostname resolution */
     dns?: string
     /** Maximum response body size in bytes. 0 = unlimited (default). */
