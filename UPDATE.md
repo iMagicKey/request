@@ -37,4 +37,4 @@
 - [ ] `HTTPS://` in upper case selects `node:http` and rejects with `ERR_INVALID_PROTOCOL`, because the scheme check is case-sensitive.
 - [ ] `Content-Encoding: GZIP` and `x-gzip` are not decompressed, because the match is exact and case-sensitive.
 - [ ] A gzip response with an empty chunked body rejects with `unexpected end of file`. `Content-Length: 0` is handled.
-- [ ] Multipart: a backslash in a field name or filename is sent as is, as the WHATWG encoding specifies, but parsers disagree on it. Python's `email` treats it as an escape, so `name="a\\"; filename="; name=smuggled; x="` can be read differently from undici. See `review-client/08b-backslash.mjs`.
+- [ ] Multipart: a backslash in a field name or filename is sent as is, as the WHATWG encoding specifies, but parsers disagree on it. For a field `a\` with filename `; name=smuggled; x=`, the wire reads `name="a\"; filename="; name=smuggled; x="`. undici sees field `a\`; Python's `email` treats `\"` as an escape and sees a field `a"; filename=` plus a smuggled `name=smuggled`.
