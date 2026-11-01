@@ -426,10 +426,9 @@ describe('redirect TLS credential handling', () => {
     it('treats an https to http downgrade on the same host and port as cross-origin', { skip: !hasOpenssl && 'openssl is not available' }, async () => {
         // One port speaking both protocols, so the scheme is the only thing that differs.
         const received = []
-        let port
         const app = (req, res) => {
             received.push({ encrypted: Boolean(req.socket.encrypted), headers: req.headers, url: req.url })
-            if (req.socket.encrypted) respond(res, 302, { Location: `http://127.0.0.1:${port}/plain` }, '')
+            if (req.socket.encrypted) respond(res, 302, { Location: `http://127.0.0.1:${req.socket.localPort}/plain` }, '')
             else respond(res)
         }
         const plainServer = http.createServer(app)
@@ -445,7 +444,7 @@ describe('redirect TLS credential handling', () => {
             })
         })
         await new Promise((resolve) => mux.listen(0, '127.0.0.1', resolve))
-        port = mux.address().port
+        const { port } = mux.address()
         try {
             const res = await bounded(
                 Request(`https://127.0.0.1:${port}/secure`, {
