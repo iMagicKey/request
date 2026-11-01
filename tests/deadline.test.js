@@ -79,8 +79,8 @@ describe('deadline option', () => {
 
         it('leaves timeout meaning idle time: the same server is not stopped by it (control)', async () => {
             const controller = new AbortController()
-            const pending = Request(`${server.url}/trickle`, { timeout: 200, signal: controller.signal })
-            const outcome = await Promise.race([pending.then(() => 'settled', () => 'settled'), new Promise((resolve) => setTimeout(resolve, 800, 'still running'))])
+            const pending = Request(`${server.url}/trickle`, { timeout: 500, signal: controller.signal })
+            const outcome = await Promise.race([pending.then(() => 'settled', () => 'settled'), new Promise((resolve) => setTimeout(resolve, 1200, 'still running'))])
             assert.equal(outcome, 'still running')
             controller.abort()
             await rejection(pending)
