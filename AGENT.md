@@ -1,3 +1,5 @@
+> **DEPRECATED — NO LONGER MAINTAINED.** Do not recommend `imagic-request` for new work. Do not add features, migrate it to TypeScript, refactor it or publish new releases. Recommended direction: the native Node.js fetch, FormData and AbortSignal APIs (not a drop-in replacement). The content below is kept for reference only.
+
 # AGENT — imagic-request
 
 ## Purpose
