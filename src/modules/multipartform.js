@@ -14,6 +14,27 @@ export default function createMultipartForm(fields) {
 
     const boundary = `-----${randomBytes(12).toString('hex')}`
 
+    // Every stream gets a listener now, not when its field is reached: a stream can fail while an earlier
+    // field is still being sent, and an 'error' with no listener would take the process down. The listeners
+    // stay in place, so an error arriving after the form has ended is ignored.
+    const fieldStreams = Object.values(fields).filter((value) => value?.readable)
+    const fail = (err) => dataStream.destroy(err)
+    for (const stream of fieldStreams) {
+        let ended = false
+        stream.on('error', fail)
+        stream.once('end', () => {
+            ended = true
+        })
+        stream.once('close', () => {
+            if (!ended) fail(new Error('A formData stream closed before it ended'))
+        })
+    }
+    // A form failure reaches the request through its own listener on the form. A form that has none must not crash.
+    dataStream.on('error', () => {})
+    dataStream.once('close', () => {
+        for (const stream of fieldStreams) stream.destroy()
+    })
+
     function getFileMimeType(filepath) {
         const mimeTypes = {
             json: 'application/json',
@@ -76,7 +97,7 @@ export default function createMultipartForm(fields) {
     }
 
     function pushField(fieldName, fieldData) {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             dataStream.push(Buffer.from(boundary, 'utf8'))
 
             if (fieldData.readable) {
@@ -91,7 +112,6 @@ export default function createMultipartForm(fields) {
                 dataStream.push(Buffer.from(`\r\nContent-Disposition: form-data; name="${escapeName(fieldName)}"; filename="${escapeName(filename)}"`, 'utf8'))
                 dataStream.push(Buffer.from(`\r\nContent-Type: ${mimeType}\r\n\r\n`, 'utf8'))
 
-                fieldData.on('error', reject)
                 fieldData.pipe(dataStream, { end: false })
                 fieldData.on('end', () => {
                     dataStream.push(Buffer.from(`\r\n`))
@@ -117,6 +137,7 @@ export default function createMultipartForm(fields) {
             ;(async () => {
                 for (const [fieldName, fieldValue] of Object.entries(fields)) {
                     await pushField(fieldName, fieldValue)
+                    if (dataStream.destroyed) return
                 }
                 dataStream.push(Buffer.from(`${boundary}--`, 'utf8'))
                 dataStream.push(null)

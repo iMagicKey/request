@@ -111,6 +111,7 @@ function sendBody(request, body, reject) {
             reject(err)
         })
         body.pipe(request)
+        request.once('close', () => body.destroy())
     } else if (body) {
         request.end(body)
     } else {
@@ -209,8 +210,20 @@ function resolveTarget(url, options) {
 }
 
 async function Request(url = '', options = {}) {
-    if (typeof url !== 'string') throw new Error('URL must be a string')
     if (typeof options !== 'object' || options === null) throw new Error('Options must be an object')
+
+    // Created before anything else can fail, so a failing field stream always has a listener and an owner.
+    const form = options.formData ? createMultipartForm(options.formData) : undefined
+    try {
+        return await sendRequest(url, options, form)
+    } catch (err) {
+        form?.dataStream.destroy()
+        throw err
+    }
+}
+
+async function sendRequest(url, options, form) {
+    if (typeof url !== 'string') throw new Error('URL must be a string')
 
     const requestOptions = {
         ...options,
@@ -229,10 +242,9 @@ async function Request(url = '', options = {}) {
         delete requestOptions.dns
     }
 
-    if (requestOptions.formData) {
-        const formData = createMultipartForm(requestOptions.formData)
-        requestOptions.formData = formData.dataStream
-        requestOptions.headers['Content-Type'] = `multipart/form-data; boundary=${formData.boundary}`
+    if (form) {
+        requestOptions.formData = form.dataStream
+        requestOptions.headers['Content-Type'] = `multipart/form-data; boundary=${form.boundary}`
     }
 
     const customSensitiveHeaders = requestOptions.sensitiveHeaders ?? []
@@ -360,8 +372,23 @@ async function Request(url = '', options = {}) {
 }
 
 function stream(url = '', options = {}) {
-    if (typeof url !== 'string') throw new Error('URL must be a string')
     if (typeof options !== 'object' || options === null) throw new Error('Options must be an object')
+
+    // Created before anything else can fail, so a failing field stream always has a listener and an owner.
+    const form = options.formData ? createMultipartForm(options.formData) : undefined
+    let response
+    try {
+        response = sendStreamRequest(url, options, form)
+    } catch (err) {
+        form?.dataStream.destroy()
+        throw err
+    }
+    response.catch(() => form?.dataStream.destroy())
+    return response
+}
+
+function sendStreamRequest(url, options, form) {
+    if (typeof url !== 'string') throw new Error('URL must be a string')
 
     const requestOptions = {
         ...options,
@@ -380,10 +407,9 @@ function stream(url = '', options = {}) {
         delete requestOptions.dns
     }
 
-    if (requestOptions.formData) {
-        const formData = createMultipartForm(requestOptions.formData)
-        requestOptions.formData = formData.dataStream
-        requestOptions.headers['Content-Type'] = `multipart/form-data; boundary=${formData.boundary}`
+    if (form) {
+        requestOptions.formData = form.dataStream
+        requestOptions.headers['Content-Type'] = `multipart/form-data; boundary=${form.boundary}`
     }
 
     const body = requestOptions.formData || requestOptions.body
