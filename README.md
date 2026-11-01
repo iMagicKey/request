@@ -121,6 +121,7 @@ Fields are written in the order they appear in the `formData` object. The bounda
 | `options` is not an object | Throws `Error: Options must be an object` |
 | `options.timeout` exceeded | Request destroyed; rejects with `Error: Request timed out` |
 | `options.deadline` exceeded | Request destroyed; rejects with an error with `name: 'TimeoutError'` and `code: 'ETIMEDOUT'`; partial data attached as `err.buffer` when the body had started |
+| 101 protocol switch or any reply to `CONNECT` | Socket destroyed; rejects with `Error: Unexpected <status> response`. Upgrades and tunnels are not supported |
 | Network error | Rejects with the underlying Node.js `Error`; partially received data is attached as `err.buffer` |
 | Stream read error on response | Rejects with the underlying error; partial data attached as `err.buffer` |
 

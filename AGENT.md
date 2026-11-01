@@ -148,6 +148,7 @@ const res = await Request('https://example.com', {
 - HTTP 4xx/5xx responses do **not** reject the promise; check `res.statusCode` manually
 - On network error, `err.buffer` contains any bytes received before the failure
 - On timeout, rejects with `Error: Request timed out` (no partial buffer)
+- A 101 protocol switch or any reply to `CONNECT` rejects with `Unexpected <status> response`, and its socket is destroyed: upgrades and tunnels are not supported
 - A truncated or malformed compressed body rejects (`stream()`: errors the returned stream). Responses without a body (HEAD, 204, 304, `Content-Length: 0`) are not decompressed
 - Retry only applies to idempotent methods; POST is never retried
 - Redirect following is enabled by default (max 10 hops)

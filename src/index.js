@@ -84,6 +84,26 @@ function decodedBody(res, method) {
     return decompressor
 }
 
+/**
+ * Reject a request that ends without a usable HTTP response. A 101, or any reply to CONNECT, only
+ * raises 'upgrade' or 'connect', and the request then closes with no response and no error.
+ */
+function rejectWithoutResponse(request, reject) {
+    let responded = false
+    request.once('response', () => {
+        responded = true
+    })
+    const onSwitch = (res, socket) => {
+        socket.destroy()
+        reject(new Error(`Unexpected ${res.statusCode} response: protocol upgrades and CONNECT tunnels are not supported`))
+    }
+    request.on('upgrade', onSwitch)
+    request.on('connect', onSwitch)
+    request.once('close', () => {
+        if (!responded) reject(new Error('Request closed before a response was received'))
+    })
+}
+
 function sendBody(request, body, reject) {
     if (isStream(body)) {
         body.on('error', (err) => {
@@ -128,6 +148,8 @@ function doRequest(url, requestOptions, body, timeout, maxBodySize) {
                 return reject(err)
             })
         })
+
+        rejectWithoutResponse(request, reject)
 
         request.on('timeout', () => {
             request.destroy()
@@ -389,6 +411,8 @@ function stream(url = '', options = {}) {
                 stream: output,
             })
         })
+
+        rejectWithoutResponse(request, reject)
 
         request.on('timeout', () => {
             request.destroy()

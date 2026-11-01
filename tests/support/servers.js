@@ -1,5 +1,7 @@
-import http from 'node:http'
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
+import http from 'node:http'
+import net from 'node:net'
 
 /**
  * Start a real loopback HTTP server that records every request it receives.
@@ -73,3 +75,52 @@ export function assertNotReceived(record, secret, label = 'request') {
     const seen = [record.url, JSON.stringify(record.rawHeaders), record.body.toString('latin1')].join('\n').toLowerCase()
     assert.equal(seen.includes(secret.toLowerCase()), false, `${label} must not contain ${secret}: ${seen}`)
 }
+
+/**
+ * Start a raw TCP server for responses node:http servers cannot produce.
+ * `onHead(socket, head)` runs for each complete request head. `closed` counts sockets that have gone away.
+ */
+export async function startRawServer(onHead) {
+    const sockets = new Set()
+    const state = { connections: 0, closed: 0 }
+    const server = net.createServer((socket) => {
+        state.connections += 1
+        sockets.add(socket)
+        socket.on('error', () => {})
+        socket.on('close', () => {
+            state.closed += 1
+            sockets.delete(socket)
+        })
+        let head = ''
+        socket.on('data', (chunk) => {
+            head += chunk.toString('latin1')
+            if (head.includes('\r\n\r\n')) {
+                const complete = head
+                head = ''
+                onHead?.(socket, complete)
+            }
+        })
+    })
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address()
+    return {
+        state,
+        port,
+        url: `http://127.0.0.1:${port}`,
+        close() {
+            for (const socket of sockets) socket.destroy()
+            return new Promise((resolve) => server.close(resolve))
+        },
+    }
+}
+
+/** Run an ES module script in a real child process, killed if it outlives `timeout`. */
+export function runChild(script, { timeout = 20000, cwd } = {}) {
+    return new Promise((resolve) => {
+        execFile(process.execPath, ['--input-type=module', '-e', script], { timeout, cwd }, (err, stdout, stderr) => {
+            resolve({ code: err ? err.code : 0, killed: Boolean(err?.killed), stdout, stderr })
+        })
+    })
+}
+
+export const moduleUrl = new URL('../../src/index.js', import.meta.url).href
