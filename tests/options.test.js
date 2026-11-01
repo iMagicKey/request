@@ -170,6 +170,23 @@ describe('explicit options and cancellation', () => {
         })
     })
 
+    describe('stream() cancellation', () => {
+        for (const path of ['/stall-body', '/stall-gzip']) {
+            it(`errors the returned stream when aborted while receiving ${path}`, async () => {
+                const controller = new AbortController()
+                const res = await bounded(stream(`${server.url}${path}`, { signal: controller.signal, timeout: 0 }))
+                setTimeout(() => controller.abort(), 50)
+                const drain = (async () => {
+                    for await (const _chunk of res.stream) {
+                        /* drain */
+                    }
+                })()
+                const err = await rejection(drain)
+                assert.ok(err instanceof Error)
+            })
+        }
+    })
+
     describe('stream request bodies and redirects', () => {
         const form = () => ({ upload: Readable.from([Buffer.from('stream body')]) })
 
