@@ -42,7 +42,7 @@ import { stream } from 'imagic-request'
 | `options.formData` | `Record<string, string \| Buffer \| ReadableStream>` | no | — | Multipart fields; takes precedence over `body`. Strings and Buffers are plain fields (Buffers as exact bytes); streams are file parts |
 | `options.timeout` | `number` | no | `30000` | Socket idle time in ms before the request is destroyed, per hop. A slow but steady response never trips it. Set to `0` to disable |
 | `options.deadline` | `number` | no | `0` | Total limit in ms across connecting, redirects, retries, backoff and body. `0` = none. Rejects with `name: 'TimeoutError'`, `code: 'ETIMEDOUT'` |
-| `options.dns` | `string` | no | — | Custom DNS server IP for hostname resolution |
+| `options.dns` | `string` | no | — | Custom DNS server IP (optionally `ip:port`) for hostname resolution. IPv4 (A records) only |
 | `options.maxBodySize` | `number` | no | `0` | Max response body in bytes. `0` = unlimited |
 | `options.followRedirects` | `boolean` | no | `true` | Follow 3xx redirects |
 | `options.maxRedirects` | `number` | no | `10` | Max redirect chain length. Exceeding it rejects; `0` rejects on any redirect. Use `followRedirects: false` to receive the 3xx response |

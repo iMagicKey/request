@@ -21,7 +21,7 @@ export interface RequestOptions {
      * With `stream()`, the returned stream errors if it has not finished in time.
      */
     deadline?: number
-    /** Custom DNS server IP address for hostname resolution */
+    /** Custom DNS server IP address (optionally `ip:port`) for hostname resolution. IPv4 (A records) only. */
     dns?: string
     /** Maximum response body size in bytes. 0 = unlimited (default). */
     maxBodySize?: number

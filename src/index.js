@@ -147,6 +147,19 @@ function doRequest(url, requestOptions, body, timeout, maxBodySize) {
     })
 }
 
+/** A `lookup` for node:net that asks one DNS server. Node requests every address (`all: true`) by default. */
+function createLookup(server) {
+    const resolver = new dns.Resolver()
+    resolver.setServers([server])
+    return (hostname, options, callback) => {
+        resolver.resolve4(hostname, (err, addresses) => {
+            if (err) return callback(err)
+            if (options.all) return callback(null, addresses.map((address) => ({ address, family: 4 })))
+            callback(null, addresses[0], 4)
+        })
+    }
+}
+
 /** Return a copy of `headers` (object, flat array or nested array) without the given lowercase names. */
 function withoutHeaders(headers, names) {
     const drop = (name) => names.has(String(name).toLowerCase())
@@ -190,14 +203,7 @@ async function Request(url = '', options = {}) {
         if (typeof requestOptions.dns !== 'string') {
             throw new Error('dns must be a string (IP address of DNS server)')
         }
-        const resolver = new dns.Resolver()
-        resolver.setServers([requestOptions.dns])
-        requestOptions.lookup = (hostname, _opts, callback) => {
-            resolver.resolve4(hostname, (err, addresses) => {
-                if (err) return callback(err)
-                callback(null, addresses[0], 4)
-            })
-        }
+        requestOptions.lookup = createLookup(requestOptions.dns)
         delete requestOptions.dns
     }
 
@@ -348,14 +354,7 @@ function stream(url = '', options = {}) {
         if (typeof requestOptions.dns !== 'string') {
             throw new Error('dns must be a string (IP address of DNS server)')
         }
-        const resolver = new dns.Resolver()
-        resolver.setServers([requestOptions.dns])
-        requestOptions.lookup = (hostname, _opts, callback) => {
-            resolver.resolve4(hostname, (err, addresses) => {
-                if (err) return callback(err)
-                callback(null, addresses[0], 4)
-            })
-        }
+        requestOptions.lookup = createLookup(requestOptions.dns)
         delete requestOptions.dns
     }
 
