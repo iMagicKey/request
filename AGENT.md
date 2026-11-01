@@ -41,16 +41,18 @@ import { stream } from 'imagic-request'
 | `options.method` | `string` | no | `'GET'` | HTTP method |
 | `options.headers` | `object` | no | `{}` | Request headers; `Content-Type` for multipart is auto-set when `formData` is present |
 | `options.body` | `string \| Buffer` | no | — | Raw body; plain objects throw `Error: body must be a string or Buffer` |
-| `options.formData` | `Record<string, string \| Buffer \| ReadableStream>` | no | — | Multipart fields; takes precedence over `body` |
-| `options.timeout` | `number` | no | `30000` | Ms before request is destroyed. Set to `0` to disable |
-| `options.dns` | `string` | no | — | Custom DNS server IP for hostname resolution |
-| `options.maxBodySize` | `number` | no | `0` | Max response body in bytes. `0` = unlimited |
+| `options.formData` | `Record<string, string \| number \| boolean \| bigint \| Uint8Array \| Readable \| ReadableStream>` | no | — | Multipart fields, as a plain object; takes precedence over `body`. Strings, numbers, booleans, bigints and Buffers/Uint8Arrays are plain fields (bytes exact); Node and web streams are file parts. Anything else (Blob, File, ArrayBuffer, other typed arrays, used streams, a `FormData` or `Map` as the form) throws a `TypeError` |
+| `options.timeout` | `number` | no | `30000` | Socket idle time in ms before the request is destroyed, per hop. A slow but steady response never trips it. Set to `0` to disable |
+| `options.deadline` | `number` | no | `0` | Total limit in ms across connecting, redirects, retries, backoff and body. `0` = none. Rejects with `name: 'TimeoutError'`, `code: 'ETIMEDOUT'` |
+| `options.dns` | `string` | no | — | Custom DNS server IP (optionally `ip:port`) for hostname resolution. IPv4 (A records) only |
+| `options.maxBodySize` | `number` | no | `0` | Max response body in bytes, a non-negative integer. `0` = unlimited |
 | `options.followRedirects` | `boolean` | no | `true` | Follow 3xx redirects |
-| `options.maxRedirects` | `number` | no | `10` | Max redirect chain length |
+| `options.maxRedirects` | `number` | no | `10` | Max redirect chain length, a non-negative integer. Exceeding it rejects; `0` rejects on any redirect. Use `followRedirects: false` to receive the 3xx response |
+| `options.sensitiveHeaders` | `string[]` | no | `[]` | Extra header names (case-insensitive) removed when a redirect changes origin |
 | `options.retry` | `number` | no | `0` | Number of retries (idempotent methods only) |
-| `options.retryDelay` | `number` | no | `1000` | Base delay in ms, doubled each attempt + jitter |
+| `options.retryDelay` | `number` | no | `1000` | Base delay in ms, doubled each attempt + jitter. `0` retries with no delay |
 | `options.retryStatusCodes` | `number[]` | no | `[500,502,503,504,408]` | HTTP codes that trigger retry |
-| `options.signal` | `AbortSignal` | no | — | Abort signal for request cancellation |
+| `options.signal` | `AbortSignal` | no | — | Abort signal for request cancellation. An aborted request rejects promptly and is never retried |
 | _...rest_ | any | no | — | Forwarded to `node:http/https`'s `request()` |
 
 **Returns:** `IncomingMessage` with `buffer: Buffer` (full decompressed body).
@@ -59,7 +61,7 @@ import { stream } from 'imagic-request'
 
 ## `stream(url, options?): Promise<{ statusCode, headers, stream }>`
 
-Same options as `Request` (except `retry`, `redirect`, `maxBodySize` — not supported in stream mode).
+Same options as `Request` (except `retry`, `followRedirects`/`maxRedirects`, `maxBodySize` — not supported in stream mode). `body` and `formData` are sent. `deadline` also covers reading the body: the returned stream errors if it has not finished in time.
 
 Returns `{ statusCode, headers, stream }` — a readable stream of the decompressed body, without buffering in memory.
 
@@ -70,7 +72,10 @@ Returns `{ statusCode, headers, stream }` — a readable stream of the decompres
 - 301/302 + POST → changes method to GET, drops body
 - 303 + any → changes method to GET, drops body
 - 307/308 + any → preserves method and body
-- Cross-origin redirects strip `Authorization`, `Cookie`, `Proxy-Authorization` headers
+- A redirect that changes scheme, host or port removes, case-insensitively, `Authorization`, `Cookie`, `Proxy-Authorization`, `Host`, `X-Api-Key`, `X-Auth-Token` and any `sensitiveHeaders`
+- It also drops `auth`, client certificate and TLS credential options (`cert`, `key`, `pfx`, `passphrase`, `secureContext`, `session`, ...), `servername`, `agent`, `createConnection` and `socketPath`. A custom `agent` (including a proxy agent) is therefore not used after an origin change
+- Credentials removed this way stay removed if a later redirect returns to the original origin. Same-origin redirects keep them. A retry starts again from the original URL with the original options
+- Redirects to anything other than `http:` or `https:` are refused with an error
 
 ## Retry behavior
 
@@ -78,6 +83,7 @@ Returns `{ statusCode, headers, stream }` — a readable stream of the decompres
 - POST is never retried (not idempotent)
 - Exponential backoff: `retryDelay * 2^attempt + jitter`
 - Retries on network errors (ECONNREFUSED, ECONNRESET, etc.) and retryable status codes
+- Never retries after the signal aborts, or when the body is `formData` (a stream, which cannot be sent twice)
 
 ---
 
@@ -139,14 +145,19 @@ const res = await Request('https://example.com', {
 ## Constraints / Gotchas
 
 - `body` must be `string` or `Buffer`; plain objects throw synchronously
-- Default timeout is 30s; set `timeout: 0` to disable
+- `maxRedirects`, `maxBodySize`, `retryDelay` and `deadline` reject anything that could not act as a limit (`NaN`, strings, objects, `Infinity`, negatives) instead of silently applying no limit. `null` or `undefined` means the default, except that `deadline: null` is rejected. `retryDelay` and `deadline` may be fractional
+- Default timeout is 30s of socket inactivity, not a total limit; set `timeout: 0` to disable. Use `deadline` for a total limit
+- `maxBodySize` defaults to unlimited, so a hostile server can exhaust memory unless it is set
 - HTTP 4xx/5xx responses do **not** reject the promise; check `res.statusCode` manually
+- Errors never carry the request URL: an invalid URL or `Location` rejects with a fresh error, without Node's `input` and `base` properties
 - On network error, `err.buffer` contains any bytes received before the failure
 - On timeout, rejects with `Error: Request timed out` (no partial buffer)
+- A 101 protocol switch or any reply to `CONNECT` rejects with `Unexpected <status> response`, and its socket is destroyed: upgrades and tunnels are not supported
+- A truncated or malformed compressed body rejects (`stream()`: errors the returned stream). Responses without a body (HEAD, 204, 304, `Content-Length: 0`) are not decompressed
 - Retry only applies to idempotent methods; POST is never retried
 - Redirect following is enabled by default (max 10 hops)
-- `formData` streams can't be replayed on 307/308 redirect — string/Buffer bodies only
-- `stream()` does not support retry, redirect, or maxBodySize
+- `formData` is sent as a stream and can't be replayed: a redirect that keeps the body (307/308, or 301/302 on a non-POST) rejects with `Cannot follow ... redirect`. String and Buffer bodies are replayed
+- `stream()` does not support retry, redirect, or maxBodySize: those options have no effect, and a 3xx response is returned as it is
 
 ---
 
