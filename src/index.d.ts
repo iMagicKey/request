@@ -17,17 +17,18 @@ export interface RequestOptions {
     timeout?: number
     /**
      * Total time limit in milliseconds, covering connecting, redirects, retries, backoff and reading the body
-     * (default: 0, no limit). On expiry the call rejects with an error whose `name` is `TimeoutError` and `code` is `ETIMEDOUT`.
+     * (default: 0, no limit). Fractions round up. Any other non-number, negative value or value above 2147483647 throws.
+     * On expiry the call rejects with an error whose `name` is `TimeoutError` and `code` is `ETIMEDOUT`.
      * With `stream()`, the returned stream errors if it has not finished in time.
      */
     deadline?: number
     /** Custom DNS server IP address (optionally `ip:port`) for hostname resolution. IPv4 (A records) only. */
     dns?: string
-    /** Maximum response body size in bytes. 0 = unlimited (default). */
+    /** Maximum response body size in bytes, a non-negative integer. 0 = unlimited (default). Anything else throws. Not applied by `stream()`. */
     maxBodySize?: number
-    /** Follow HTTP redirects (default: true) */
+    /** Follow HTTP redirects (default: true). Not applied by `stream()`, which never follows them. */
     followRedirects?: boolean
-    /** Maximum number of redirects to follow (default: 10). Exceeding it rejects; with 0, any redirect response rejects. Use `followRedirects: false` to receive the 3xx response instead. */
+    /** Maximum number of redirects to follow, a non-negative integer (default: 10). Anything else throws. Exceeding it rejects; with 0, any redirect response rejects. Use `followRedirects: false` to receive the 3xx response instead. */
     maxRedirects?: number
     /**
      * Extra header names (case-insensitive) to remove when a redirect changes origin, in addition to
@@ -36,7 +37,7 @@ export interface RequestOptions {
     sensitiveHeaders?: string[]
     /** Number of retries on network errors or retryable status codes (default: 0) */
     retry?: number
-    /** Base delay between retries in ms, doubled each attempt (default: 1000). 0 retries with no delay. */
+    /** Base delay between retries in ms, doubled each attempt (default: 1000). 0 retries with no delay. A non-number, negative value or value above 2147483647 throws. */
     retryDelay?: number
     /** HTTP status codes to retry on (default: [500, 502, 503, 504, 408]) */
     retryStatusCodes?: number[]

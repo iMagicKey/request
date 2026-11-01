@@ -43,9 +43,9 @@ import { stream } from 'imagic-request'
 | `options.timeout` | `number` | no | `30000` | Socket idle time in ms before the request is destroyed, per hop. A slow but steady response never trips it. Set to `0` to disable |
 | `options.deadline` | `number` | no | `0` | Total limit in ms across connecting, redirects, retries, backoff and body. `0` = none. Rejects with `name: 'TimeoutError'`, `code: 'ETIMEDOUT'` |
 | `options.dns` | `string` | no | — | Custom DNS server IP (optionally `ip:port`) for hostname resolution. IPv4 (A records) only |
-| `options.maxBodySize` | `number` | no | `0` | Max response body in bytes. `0` = unlimited |
+| `options.maxBodySize` | `number` | no | `0` | Max response body in bytes, a non-negative integer. `0` = unlimited |
 | `options.followRedirects` | `boolean` | no | `true` | Follow 3xx redirects |
-| `options.maxRedirects` | `number` | no | `10` | Max redirect chain length. Exceeding it rejects; `0` rejects on any redirect. Use `followRedirects: false` to receive the 3xx response |
+| `options.maxRedirects` | `number` | no | `10` | Max redirect chain length, a non-negative integer. Exceeding it rejects; `0` rejects on any redirect. Use `followRedirects: false` to receive the 3xx response |
 | `options.sensitiveHeaders` | `string[]` | no | `[]` | Extra header names (case-insensitive) removed when a redirect changes origin |
 | `options.retry` | `number` | no | `0` | Number of retries (idempotent methods only) |
 | `options.retryDelay` | `number` | no | `1000` | Base delay in ms, doubled each attempt + jitter. `0` retries with no delay |
@@ -143,6 +143,7 @@ const res = await Request('https://example.com', {
 ## Constraints / Gotchas
 
 - `body` must be `string` or `Buffer`; plain objects throw synchronously
+- `maxRedirects`, `maxBodySize`, `retryDelay` and `deadline` reject anything that could not act as a limit (`NaN`, strings, objects, `Infinity`, negatives) instead of silently applying no limit. `null` or `undefined` means the default, except that `deadline: null` is rejected. `retryDelay` and `deadline` may be fractional
 - Default timeout is 30s of socket inactivity, not a total limit; set `timeout: 0` to disable. Use `deadline` for a total limit
 - `maxBodySize` defaults to unlimited, so a hostile server can exhaust memory unless it is set
 - HTTP 4xx/5xx responses do **not** reject the promise; check `res.statusCode` manually

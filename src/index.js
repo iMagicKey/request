@@ -36,14 +36,24 @@ const DEFAULT_RETRY_STATUS_CODES = [500, 502, 503, 504, 408]
 const IDEMPOTENT_METHODS = new Set(['GET', 'PUT', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE'])
 
 // The largest delay a Node.js timer can hold. Anything beyond it would fire almost immediately.
-const MAX_DEADLINE = 2 ** 31 - 1
+const MAX_TIMER_DELAY = 2 ** 31 - 1
 
-function readDeadline(value = 0) {
-    if (typeof value !== 'number' || !(value >= 0) || value > MAX_DEADLINE) {
-        throw new Error(`deadline must be a number of milliseconds between 0 and ${MAX_DEADLINE}`)
+// These options bound a request, so a value that could not bound it is an error rather than no limit at all.
+function readMilliseconds(name, value) {
+    if (typeof value !== 'number' || !(value >= 0) || value > MAX_TIMER_DELAY) {
+        throw new Error(`${name} must be a number of milliseconds between 0 and ${MAX_TIMER_DELAY}`)
     }
     return value
 }
+
+function readCount(name, value, fallback) {
+    if (value === undefined || value === null) return fallback
+    if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer`)
+    return value
+}
+
+// Rounded up because AbortSignal.timeout() accepts only integers.
+const readDeadline = (value = 0) => Math.ceil(readMilliseconds('deadline', value))
 
 function deadlineError(deadline) {
     const err = new Error(`Request deadline of ${deadline} ms exceeded`)
@@ -265,15 +275,15 @@ async function sendRequest(url, options, form) {
     delete requestOptions.sensitiveHeaders
 
     const followRedirects = requestOptions.followRedirects !== false
-    const maxRedirects = requestOptions.maxRedirects ?? 10
+    const maxRedirects = readCount('maxRedirects', requestOptions.maxRedirects, 10)
     delete requestOptions.followRedirects
     delete requestOptions.maxRedirects
 
-    const maxBodySize = requestOptions.maxBodySize || 0
+    const maxBodySize = readCount('maxBodySize', requestOptions.maxBodySize, 0)
     delete requestOptions.maxBodySize
 
     const retryLimit = requestOptions.retry || 0
-    const retryDelay = requestOptions.retryDelay ?? 1000
+    const retryDelay = readMilliseconds('retryDelay', requestOptions.retryDelay ?? 1000)
     const retryStatusCodes = new Set(requestOptions.retryStatusCodes || DEFAULT_RETRY_STATUS_CODES)
     delete requestOptions.retry
     delete requestOptions.retryDelay
@@ -370,8 +380,8 @@ async function sendRequest(url, options, form) {
                 const delay = baseDelay + jitter
                 try {
                     await sleep(Math.max(0, delay), undefined, { signal })
-                } catch {
-                    throw cancellation()
+                } catch (err) {
+                    throw signal?.aborted ? cancellation() : err
                 }
                 continue
             }
