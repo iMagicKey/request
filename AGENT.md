@@ -45,6 +45,7 @@ import { stream } from 'imagic-request'
 | `options.maxBodySize` | `number` | no | `0` | Max response body in bytes. `0` = unlimited |
 | `options.followRedirects` | `boolean` | no | `true` | Follow 3xx redirects |
 | `options.maxRedirects` | `number` | no | `10` | Max redirect chain length |
+| `options.sensitiveHeaders` | `string[]` | no | `[]` | Extra header names (case-insensitive) removed when a redirect changes origin |
 | `options.retry` | `number` | no | `0` | Number of retries (idempotent methods only) |
 | `options.retryDelay` | `number` | no | `1000` | Base delay in ms, doubled each attempt + jitter |
 | `options.retryStatusCodes` | `number[]` | no | `[500,502,503,504,408]` | HTTP codes that trigger retry |
@@ -68,7 +69,10 @@ Returns `{ statusCode, headers, stream }` — a readable stream of the decompres
 - 301/302 + POST → changes method to GET, drops body
 - 303 + any → changes method to GET, drops body
 - 307/308 + any → preserves method and body
-- Cross-origin redirects strip `Authorization`, `Cookie`, `Proxy-Authorization` headers
+- A redirect that changes scheme, host or port removes, case-insensitively, `Authorization`, `Cookie`, `Proxy-Authorization`, `Host`, `X-Api-Key`, `X-Auth-Token` and any `sensitiveHeaders`
+- It also drops `auth`, client certificate and TLS credential options (`cert`, `key`, `pfx`, `passphrase`, `secureContext`, `session`, ...), `servername`, `agent`, `createConnection` and `socketPath`. A custom `agent` (including a proxy agent) is therefore not used after an origin change
+- Credentials removed this way stay removed if a later redirect returns to the original origin. Same-origin redirects keep them. A retry starts again from the original URL with the original options
+- Redirects to anything other than `http:` or `https:` are refused with an error
 
 ## Retry behavior
 

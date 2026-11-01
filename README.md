@@ -52,8 +52,11 @@ Request(
 | `options.body` | `string \| Buffer` | Raw request body. Mutually exclusive with `formData`. |
 | `options.formData` | `object` | Fields for a `multipart/form-data` request. String and Buffer values become plain text fields; `ReadableStream` values become file uploads. |
 | `options.timeout` | `number` | Request timeout in milliseconds. The request is destroyed and an error is thrown on expiry. |
+| `options.sensitiveHeaders` | `string[]` | Extra header names to remove when a redirect changes origin. |
 
 Any additional properties in `options` are forwarded directly to `node:http/https`'s `request()` (e.g. `agent`, `hostname`, `auth`).
+
+**Redirects:** a redirect that changes scheme, host or port removes `Authorization`, `Cookie`, `Proxy-Authorization`, `Host`, `X-Api-Key` and `X-Auth-Token` (case-insensitive), plus anything named in `options.sensitiveHeaders`, and drops `auth`, client certificate options and any custom `agent`. They stay removed if the chain later returns to the original origin. Redirects to anything other than `http:` or `https:` are refused with an error.
 
 **Return value:**
 

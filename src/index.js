@@ -6,7 +6,30 @@ import createMultipartForm from './modules/multipartform.js'
 
 const DEFAULT_TIMEOUT = 30000
 const REDIRECT_CODES = new Set([301, 302, 303, 307, 308])
-const SENSITIVE_HEADERS = ['authorization', 'cookie', 'proxy-authorization']
+// Removed when a redirect changes origin. Names are compared lowercase.
+const SENSITIVE_HEADERS = ['authorization', 'cookie', 'proxy-authorization', 'host', 'x-api-key', 'x-auth-token']
+const BODY_HEADERS = new Set(['content-type', 'content-length', 'content-encoding', 'transfer-encoding'])
+// Options that authenticate the caller or tie the connection to the origin they were given for.
+// `agent`, `secureContext` and `createConnection` are included because they can hold client certificates or a fixed target.
+const ORIGIN_BOUND_OPTIONS = [
+    'auth',
+    'cert',
+    'key',
+    'pfx',
+    'passphrase',
+    'secureContext',
+    'session',
+    'servername',
+    'pskCallback',
+    'clientCertEngine',
+    'privateKeyEngine',
+    'privateKeyIdentifier',
+    'agent',
+    'createConnection',
+    'socketPath',
+]
+// Options that override parts of the URL. Once a redirect is followed, the Location is authoritative.
+const URL_OVERRIDE_OPTIONS = ['protocol', 'hostname', 'host', 'port', 'path', 'defaultPort']
 const DEFAULT_RETRY_STATUS_CODES = [500, 502, 503, 504, 408]
 const IDEMPOTENT_METHODS = new Set(['GET', 'PUT', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE'])
 
@@ -88,13 +111,39 @@ function doRequest(url, requestOptions, body, timeout, maxBodySize) {
     })
 }
 
+/** Return a copy of `headers` (object, flat array or nested array) without the given lowercase names. */
+function withoutHeaders(headers, names) {
+    const drop = (name) => names.has(String(name).toLowerCase())
+    if (!Array.isArray(headers)) return Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !drop(name)))
+    if (Array.isArray(headers[0])) return headers.filter(([name]) => !drop(name))
+    const kept = []
+    for (let i = 0; i < headers.length; i += 2) {
+        if (!drop(headers[i])) kept.push(headers[i], headers[i + 1])
+    }
+    return kept
+}
+
+/** The URL a request is actually sent to: node:http lets these options override the URL. */
+function resolveTarget(url, options) {
+    const target = new URL(url)
+    if (options.protocol) target.protocol = options.protocol
+    if (options.hostname) target.hostname = options.hostname
+    if (options.port) target.port = options.port
+    if (options.path) {
+        const query = options.path.indexOf('?')
+        target.pathname = query === -1 ? options.path : options.path.slice(0, query)
+        target.search = query === -1 ? '' : options.path.slice(query)
+    }
+    return target
+}
+
 async function Request(url = '', options = {}) {
     if (typeof url !== 'string') throw new Error('URL must be a string')
     if (typeof options !== 'object' || options === null) throw new Error('Options must be an object')
 
     const requestOptions = {
-        headers: {},
         ...options,
+        headers: withoutHeaders(options.headers, new Set()),
     }
 
     if (requestOptions.body !== undefined && typeof requestOptions.body !== 'string' && !Buffer.isBuffer(requestOptions.body)) {
@@ -119,9 +168,15 @@ async function Request(url = '', options = {}) {
     if (requestOptions.formData) {
         const formData = createMultipartForm(requestOptions.formData)
         requestOptions.formData = formData.dataStream
-        requestOptions.headers = requestOptions.headers || {}
         requestOptions.headers['Content-Type'] = `multipart/form-data; boundary=${formData.boundary}`
     }
+
+    const customSensitiveHeaders = requestOptions.sensitiveHeaders ?? []
+    if (!Array.isArray(customSensitiveHeaders) || customSensitiveHeaders.some((name) => typeof name !== 'string')) {
+        throw new Error('sensitiveHeaders must be an array of strings')
+    }
+    const sensitiveHeaders = new Set([...SENSITIVE_HEADERS, ...customSensitiveHeaders.map((name) => name.toLowerCase())])
+    delete requestOptions.sensitiveHeaders
 
     const followRedirects = requestOptions.followRedirects !== false
     const maxRedirects = requestOptions.maxRedirects || 10
@@ -172,29 +227,33 @@ async function Request(url = '', options = {}) {
                 throw new Error(`Maximum number of redirects exceeded (${maxRedirects})`)
             }
 
-            const newUrl = new URL(res.headers.location, currentUrl).href
+            const from = resolveTarget(currentUrl, opts)
+            const to = new URL(res.headers.location, from)
+            if (to.protocol !== 'http:' && to.protocol !== 'https:') {
+                throw new Error(`Refusing to follow redirect to unsupported protocol "${to.protocol}"`)
+            }
 
             // RFC 7231: 303 → always GET; 301/302 + POST → GET (de facto standard)
             const currentMethod = (opts.method || 'GET').toUpperCase()
             if (res.statusCode === 303 || ((res.statusCode === 301 || res.statusCode === 302) && currentMethod === 'POST')) {
                 opts.method = 'GET'
                 currentBody = undefined
-                delete opts.headers['content-type']
-                delete opts.headers['Content-Type']
-                delete opts.headers['content-length']
-                delete opts.headers['Content-Length']
+                opts.headers = withoutHeaders(opts.headers, BODY_HEADERS)
             }
 
-            // Strip sensitive headers on cross-origin redirect
-            const oldOrigin = new URL(currentUrl).origin
-            const newOrigin = new URL(newUrl).origin
-            if (oldOrigin !== newOrigin) {
-                for (const header of SENSITIVE_HEADERS) {
-                    delete opts.headers[header]
+            // `opts` lives for the whole chain, so anything removed here stays removed
+            // if a later redirect returns to the original origin.
+            if (from.origin !== to.origin) {
+                opts.headers = withoutHeaders(opts.headers, sensitiveHeaders)
+                for (const name of ORIGIN_BOUND_OPTIONS) delete opts[name]
+                // node:http adds no Host header of its own for array-form headers.
+                if (Array.isArray(opts.headers)) {
+                    opts.headers = Array.isArray(opts.headers[0]) ? [...opts.headers, ['Host', to.host]] : [...opts.headers, 'Host', to.host]
                 }
             }
+            for (const name of URL_OVERRIDE_OPTIONS) delete opts[name]
 
-            currentUrl = newUrl
+            currentUrl = to.href
         }
 
         // Retry decision

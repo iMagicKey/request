@@ -18,8 +18,13 @@ export interface RequestOptions {
     maxBodySize?: number
     /** Follow HTTP redirects (default: true) */
     followRedirects?: boolean
-    /** Maximum number of redirects to follow (default: 10) */
+    /** Maximum number of redirects to follow (default: 10). Exceeding it rejects. */
     maxRedirects?: number
+    /**
+     * Extra header names (case-insensitive) to remove when a redirect changes origin, in addition to
+     * Authorization, Cookie, Proxy-Authorization, Host, X-Api-Key and X-Auth-Token.
+     */
+    sensitiveHeaders?: string[]
     /** Number of retries on network errors or retryable status codes (default: 0) */
     retry?: number
     /** Base delay between retries in ms, doubled each attempt (default: 1000) */
