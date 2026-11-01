@@ -39,7 +39,7 @@ export interface RequestOptions {
      * Authorization, Cookie, Proxy-Authorization, Host, X-Api-Key and X-Auth-Token.
      */
     sensitiveHeaders?: string[]
-    /** Number of retries on network errors or retryable status codes (default: 0) */
+    /** Number of retries on network errors or retryable status codes (default: 0). Not applied by `stream()`. */
     retry?: number
     /** Base delay between retries in ms, doubled each attempt (default: 1000). 0 retries with no delay. A non-number, negative value or value above 2147483647 throws. */
     retryDelay?: number
@@ -78,6 +78,9 @@ export function Request(url: string, options?: RequestOptions): Promise<RequestR
  *
  * Does not buffer the response in memory — use for large downloads or piping.
  * Automatically decompresses br/gzip/deflate responses.
+ *
+ * Makes a single request: a 3xx response is returned as it is. `followRedirects`, `maxRedirects`, `retry`, `retryDelay`,
+ * `retryStatusCodes` and `maxBodySize` have no effect here.
  */
 export function stream(url: string, options?: RequestOptions): Promise<StreamResponse>
 

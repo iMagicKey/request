@@ -155,7 +155,7 @@ const res = await Request('https://example.com', {
 - Retry only applies to idempotent methods; POST is never retried
 - Redirect following is enabled by default (max 10 hops)
 - `formData` is sent as a stream and can't be replayed: a redirect that keeps the body (307/308, or 301/302 on a non-POST) rejects with `Cannot follow ... redirect`. String and Buffer bodies are replayed
-- `stream()` does not support retry, redirect, or maxBodySize
+- `stream()` does not support retry, redirect, or maxBodySize: those options have no effect, and a 3xx response is returned as it is
 
 ---
 

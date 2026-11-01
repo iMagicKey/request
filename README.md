@@ -115,6 +115,12 @@ const res = await Request('https://upload.example.com/files', {
 
 `formData` itself must be a plain object: a `FormData` or `Map` throws a `TypeError`. Fields are written in the order they appear in the `formData` object. The boundary string is generated randomly per request. In field names and filenames, `"`, CR and LF are escaped as `%22`, `%0D` and `%0A`, as in the WHATWG form encoding.
 
+### `stream(url, options?): Promise<{ statusCode, headers, stream }>`
+
+Sends the request like `Request`, including `body` and `formData`, and returns the decompressed response body as a readable stream without buffering it.
+
+`stream()` makes a single request. It does not follow redirects (a 3xx response is returned as it is), retry or limit the body, so `followRedirects`, `maxRedirects`, `retry`, `retryDelay`, `retryStatusCodes` and `maxBodySize` have no effect. `deadline` also covers reading the body: the returned stream errors if it has not finished in time.
+
 ## Error Handling
 
 | Condition | Behavior |
