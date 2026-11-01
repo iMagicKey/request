@@ -39,7 +39,7 @@ import { stream } from 'imagic-request'
 | `options.method` | `string` | no | `'GET'` | HTTP method |
 | `options.headers` | `object` | no | `{}` | Request headers; `Content-Type` for multipart is auto-set when `formData` is present |
 | `options.body` | `string \| Buffer` | no | — | Raw body; plain objects throw `Error: body must be a string or Buffer` |
-| `options.formData` | `Record<string, string \| Buffer \| ReadableStream>` | no | — | Multipart fields; takes precedence over `body` |
+| `options.formData` | `Record<string, string \| Buffer \| ReadableStream>` | no | — | Multipart fields; takes precedence over `body`. Strings and Buffers are plain fields (Buffers as exact bytes); streams are file parts |
 | `options.timeout` | `number` | no | `30000` | Ms before request is destroyed. Set to `0` to disable |
 | `options.dns` | `string` | no | — | Custom DNS server IP for hostname resolution |
 | `options.maxBodySize` | `number` | no | `0` | Max response body in bytes. `0` = unlimited |

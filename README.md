@@ -50,7 +50,7 @@ Request(
 | `options.method` | `string` | HTTP method (e.g. `'POST'`, `'GET'`). Defaults to Node.js default (`'GET'`). |
 | `options.headers` | `object` | Request headers. When `formData` is set, `Content-Type: multipart/form-data; boundary=...` is added automatically. |
 | `options.body` | `string \| Buffer` | Raw request body. Mutually exclusive with `formData`. |
-| `options.formData` | `object` | Fields for a `multipart/form-data` request. String and Buffer values become plain text fields; `ReadableStream` values become file uploads. |
+| `options.formData` | `object` | Fields for a `multipart/form-data` request. String and Buffer values become plain fields (Buffers are sent as raw bytes); `ReadableStream` values become file uploads. |
 | `options.timeout` | `number` | Request timeout in milliseconds. The request is destroyed and an error is thrown on expiry. |
 | `options.sensitiveHeaders` | `string[]` | Extra header names to remove when a redirect changes origin. |
 
@@ -101,13 +101,14 @@ const res = await Request('https://upload.example.com/files', {
 
 | Field value type | Behavior |
 |-----------------|----------|
-| `string` or `Buffer` | Sent as a plain `form-data` text field |
+| `string` | Sent as a plain `form-data` field, UTF-8 encoded |
+| `Buffer` | Sent as a plain `form-data` field with the exact bytes (no `filename` or `Content-Type`). Use a stream if the receiver expects a file part |
 | `ReadableStream` with `.path` property | Sent as a file; MIME type and filename derived from `stream.path` |
 | `ReadableStream` without `.path` | Sent as a file with MIME `application/octet-stream` and filename `filename` |
 
 **MIME type detection** is based on file extension. Supported extensions include common image, video, audio, document, archive, and code formats. Unknown extensions fall back to `application/octet-stream`.
 
-Fields are written in the order they appear in the `formData` object. The boundary string is generated randomly per request.
+Fields are written in the order they appear in the `formData` object. The boundary string is generated randomly per request. In field names and filenames, `"`, CR and LF are escaped as `%22`, `%0D` and `%0A`, as in the WHATWG form encoding.
 
 ## Error Handling
 

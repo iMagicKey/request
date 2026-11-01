@@ -1,15 +1,18 @@
+import { randomBytes } from 'node:crypto'
 import { Duplex } from 'node:stream'
 import path from 'node:path'
+
+/** WHATWG multipart/form-data escaping for field names and filenames. */
+function escapeName(name) {
+    return name.replace(/"/g, '%22').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
+}
 
 export default function createMultipartForm(fields) {
     const dataStream = new Duplex()
     let reading = false
     const defaultMimeType = 'application/octet-stream'
 
-    let boundary = '-----'
-    for (let i = 0; i < 24; i++) {
-        boundary += Math.floor(Math.random() * 16).toString(16)
-    }
+    const boundary = `-----${randomBytes(12).toString('hex')}`
 
     function getFileMimeType(filepath) {
         const mimeTypes = {
@@ -68,7 +71,7 @@ export default function createMultipartForm(fields) {
         }
 
         const ext = path.extname(filepath).slice(1)
-        if (ext in mimeTypes) return mimeTypes[ext]
+        if (Object.hasOwn(mimeTypes, ext)) return mimeTypes[ext]
         return defaultMimeType
     }
 
@@ -85,7 +88,7 @@ export default function createMultipartForm(fields) {
                     filename = path.basename(fieldData.path)
                 }
 
-                dataStream.push(Buffer.from(`\r\nContent-Disposition: form-data; name="${fieldName}"; filename="${filename}"`, 'utf8'))
+                dataStream.push(Buffer.from(`\r\nContent-Disposition: form-data; name="${escapeName(fieldName)}"; filename="${escapeName(filename)}"`, 'utf8'))
                 dataStream.push(Buffer.from(`\r\nContent-Type: ${mimeType}\r\n\r\n`, 'utf8'))
 
                 fieldData.on('error', reject)
@@ -95,8 +98,14 @@ export default function createMultipartForm(fields) {
                     resolve()
                 })
             } else {
-                dataStream.push(Buffer.from(`\r\nContent-Disposition: form-data; name="${fieldName}"`, 'utf8'))
-                dataStream.push(Buffer.from(`\r\n\r\n${fieldData.toString()}\r\n`, 'utf8'))
+                dataStream.push(Buffer.from(`\r\nContent-Disposition: form-data; name="${escapeName(fieldName)}"\r\n\r\n`, 'utf8'))
+                // Buffers and typed arrays go on the wire as they are; anything else is text.
+                if (fieldData instanceof Uint8Array) {
+                    if (fieldData.length > 0) dataStream.push(Buffer.from(fieldData.buffer, fieldData.byteOffset, fieldData.byteLength))
+                } else {
+                    dataStream.push(Buffer.from(fieldData.toString(), 'utf8'))
+                }
+                dataStream.push(Buffer.from('\r\n'))
                 resolve()
             }
         })
