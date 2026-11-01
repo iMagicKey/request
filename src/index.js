@@ -2,6 +2,7 @@ import dns from 'node:dns'
 import http from 'node:http'
 import https from 'node:https'
 import { pipeline } from 'node:stream'
+import { setTimeout as sleep } from 'node:timers/promises'
 import zlib from 'node:zlib'
 import createMultipartForm from './modules/multipartform.js'
 
@@ -34,6 +35,17 @@ const URL_OVERRIDE_OPTIONS = ['protocol', 'hostname', 'host', 'port', 'path', 'd
 const DEFAULT_RETRY_STATUS_CODES = [500, 502, 503, 504, 408]
 const IDEMPOTENT_METHODS = new Set(['GET', 'PUT', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE'])
 
+const isStream = (body) => typeof body?.pipe === 'function'
+
+/** The same error node:http raises for an aborted signal. */
+function abortError(signal) {
+    const err = new Error('The operation was aborted')
+    err.name = 'AbortError'
+    err.code = 'ABORT_ERR'
+    err.cause = signal.reason
+    return err
+}
+
 /**
  * The response body as a readable stream, decompressed according to Content-Encoding.
  * The pipeline destroys the decompressor if the response errors or closes early,
@@ -53,6 +65,20 @@ function decodedBody(res, method) {
     // Errors reach the reader through the decompressor's own 'error' event.
     pipeline(res, decompressor, () => {})
     return decompressor
+}
+
+function sendBody(request, body, reject) {
+    if (isStream(body)) {
+        body.on('error', (err) => {
+            request.destroy()
+            reject(err)
+        })
+        body.pipe(request)
+    } else if (body) {
+        request.end(body)
+    } else {
+        request.end()
+    }
 }
 
 function doRequest(url, requestOptions, body, timeout, maxBodySize) {
@@ -100,22 +126,7 @@ function doRequest(url, requestOptions, body, timeout, maxBodySize) {
             request.setTimeout(timeout)
         }
 
-        if (body) {
-            if (body.readable) {
-                body.on('error', (err) => {
-                    request.destroy()
-                    reject(err)
-                })
-                body.pipe(request)
-                body.on('finish', () => {
-                    request.end()
-                })
-            } else {
-                request.end(body)
-            }
-        } else {
-            request.end()
-        }
+        sendBody(request, body, reject)
     })
 }
 
@@ -187,7 +198,7 @@ async function Request(url = '', options = {}) {
     delete requestOptions.sensitiveHeaders
 
     const followRedirects = requestOptions.followRedirects !== false
-    const maxRedirects = requestOptions.maxRedirects || 10
+    const maxRedirects = requestOptions.maxRedirects ?? 10
     delete requestOptions.followRedirects
     delete requestOptions.maxRedirects
 
@@ -195,7 +206,7 @@ async function Request(url = '', options = {}) {
     delete requestOptions.maxBodySize
 
     const retryLimit = requestOptions.retry || 0
-    const retryDelay = requestOptions.retryDelay || 1000
+    const retryDelay = requestOptions.retryDelay ?? 1000
     const retryStatusCodes = new Set(requestOptions.retryStatusCodes || DEFAULT_RETRY_STATUS_CODES)
     delete requestOptions.retry
     delete requestOptions.retryDelay
@@ -209,6 +220,9 @@ async function Request(url = '', options = {}) {
 
     const method = (requestOptions.method || 'GET').toUpperCase()
     const isIdempotent = IDEMPOTENT_METHODS.has(method)
+    const { signal } = requestOptions
+
+    if (signal?.aborted) throw abortError(signal)
 
     for (let attempt = 0; ; attempt++) {
         let res
@@ -223,6 +237,10 @@ async function Request(url = '', options = {}) {
             try {
                 res = await doRequest(currentUrl, opts, currentBody, timeout, maxBodySize)
             } catch (err) {
+                // A cancelled request is never retried. Depending on timing, the abort can
+                // surface as a reset of the response rather than as an AbortError.
+                if (signal?.aborted && err.name !== 'AbortError') throw Object.assign(abortError(signal), { buffer: err.buffer })
+                if (signal?.aborted) throw err
                 networkError = err
                 break
             }
@@ -261,17 +279,21 @@ async function Request(url = '', options = {}) {
             }
             for (const name of URL_OVERRIDE_OPTIONS) delete opts[name]
 
+            if (isStream(currentBody)) {
+                throw new Error(`Cannot follow ${res.statusCode} redirect: a multipart or stream request body cannot be replayed`)
+            }
+
             currentUrl = to.href
         }
 
         // Retry decision
-        if (attempt < retryLimit && retryLimit > 0 && isIdempotent) {
+        if (attempt < retryLimit && retryLimit > 0 && isIdempotent && !isStream(body)) {
             const shouldRetry = networkError || (res && retryStatusCodes.has(res.statusCode))
             if (shouldRetry) {
                 const baseDelay = retryDelay * (2 ** attempt)
                 const jitter = Math.floor(Math.random() * baseDelay * 0.2)
                 const delay = baseDelay + jitter
-                await new Promise((resolve) => setTimeout(resolve, Math.max(0, delay)))
+                await sleep(Math.max(0, delay), undefined, { signal })
                 continue
             }
         }
@@ -286,8 +308,12 @@ function stream(url = '', options = {}) {
     if (typeof options !== 'object' || options === null) throw new Error('Options must be an object')
 
     const requestOptions = {
-        headers: {},
         ...options,
+        headers: withoutHeaders(options.headers, new Set()),
+    }
+
+    if (requestOptions.body !== undefined && typeof requestOptions.body !== 'string' && !Buffer.isBuffer(requestOptions.body)) {
+        throw new Error('body must be a string or Buffer')
     }
 
     if (requestOptions.dns !== undefined) {
@@ -304,6 +330,16 @@ function stream(url = '', options = {}) {
         }
         delete requestOptions.dns
     }
+
+    if (requestOptions.formData) {
+        const formData = createMultipartForm(requestOptions.formData)
+        requestOptions.formData = formData.dataStream
+        requestOptions.headers['Content-Type'] = `multipart/form-data; boundary=${formData.boundary}`
+    }
+
+    const body = requestOptions.formData || requestOptions.body
+    delete requestOptions.body
+    delete requestOptions.formData
 
     const timeout = requestOptions.timeout === undefined ? DEFAULT_TIMEOUT : requestOptions.timeout
     const requester = url.startsWith('https:') ? https : http
@@ -335,7 +371,7 @@ function stream(url = '', options = {}) {
             request.setTimeout(timeout)
         }
 
-        request.end()
+        sendBody(request, body, reject)
     })
 }
 

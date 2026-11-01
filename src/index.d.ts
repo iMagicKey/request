@@ -18,7 +18,7 @@ export interface RequestOptions {
     maxBodySize?: number
     /** Follow HTTP redirects (default: true) */
     followRedirects?: boolean
-    /** Maximum number of redirects to follow (default: 10). Exceeding it rejects. */
+    /** Maximum number of redirects to follow (default: 10). Exceeding it rejects; with 0, any redirect response rejects. Use `followRedirects: false` to receive the 3xx response instead. */
     maxRedirects?: number
     /**
      * Extra header names (case-insensitive) to remove when a redirect changes origin, in addition to
@@ -27,11 +27,11 @@ export interface RequestOptions {
     sensitiveHeaders?: string[]
     /** Number of retries on network errors or retryable status codes (default: 0) */
     retry?: number
-    /** Base delay between retries in ms, doubled each attempt (default: 1000) */
+    /** Base delay between retries in ms, doubled each attempt (default: 1000). 0 retries with no delay. */
     retryDelay?: number
     /** HTTP status codes to retry on (default: [500, 502, 503, 504, 408]) */
     retryStatusCodes?: number[]
-    /** AbortSignal for request cancellation */
+    /** AbortSignal for request cancellation. An aborted request rejects promptly and is never retried. */
     signal?: AbortSignal
     /** Any additional options forwarded to node:http/https request() */
     [key: string]: unknown

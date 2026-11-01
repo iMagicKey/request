@@ -44,12 +44,12 @@ import { stream } from 'imagic-request'
 | `options.dns` | `string` | no | — | Custom DNS server IP for hostname resolution |
 | `options.maxBodySize` | `number` | no | `0` | Max response body in bytes. `0` = unlimited |
 | `options.followRedirects` | `boolean` | no | `true` | Follow 3xx redirects |
-| `options.maxRedirects` | `number` | no | `10` | Max redirect chain length |
+| `options.maxRedirects` | `number` | no | `10` | Max redirect chain length. Exceeding it rejects; `0` rejects on any redirect. Use `followRedirects: false` to receive the 3xx response |
 | `options.sensitiveHeaders` | `string[]` | no | `[]` | Extra header names (case-insensitive) removed when a redirect changes origin |
 | `options.retry` | `number` | no | `0` | Number of retries (idempotent methods only) |
-| `options.retryDelay` | `number` | no | `1000` | Base delay in ms, doubled each attempt + jitter |
+| `options.retryDelay` | `number` | no | `1000` | Base delay in ms, doubled each attempt + jitter. `0` retries with no delay |
 | `options.retryStatusCodes` | `number[]` | no | `[500,502,503,504,408]` | HTTP codes that trigger retry |
-| `options.signal` | `AbortSignal` | no | — | Abort signal for request cancellation |
+| `options.signal` | `AbortSignal` | no | — | Abort signal for request cancellation. An aborted request rejects promptly and is never retried |
 | _...rest_ | any | no | — | Forwarded to `node:http/https`'s `request()` |
 
 **Returns:** `IncomingMessage` with `buffer: Buffer` (full decompressed body).
@@ -80,6 +80,7 @@ Returns `{ statusCode, headers, stream }` — a readable stream of the decompres
 - POST is never retried (not idempotent)
 - Exponential backoff: `retryDelay * 2^attempt + jitter`
 - Retries on network errors (ECONNREFUSED, ECONNRESET, etc.) and retryable status codes
+- Never retries after the signal aborts, or when the body is `formData` (a stream, which cannot be sent twice)
 
 ---
 
@@ -148,7 +149,7 @@ const res = await Request('https://example.com', {
 - A truncated or malformed compressed body rejects (`stream()`: errors the returned stream). Responses without a body (HEAD, 204, 304, `Content-Length: 0`) are not decompressed
 - Retry only applies to idempotent methods; POST is never retried
 - Redirect following is enabled by default (max 10 hops)
-- `formData` streams can't be replayed on 307/308 redirect — string/Buffer bodies only
+- `formData` is sent as a stream and can't be replayed: a redirect that keeps the body (307/308, or 301/302 on a non-POST) rejects with `Cannot follow ... redirect`. String and Buffer bodies are replayed
 - `stream()` does not support retry, redirect, or maxBodySize
 
 ---
