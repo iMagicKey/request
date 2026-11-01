@@ -1,6 +1,7 @@
 import dns from 'node:dns'
 import http from 'node:http'
 import https from 'node:https'
+import { pipeline } from 'node:stream'
 import zlib from 'node:zlib'
 import createMultipartForm from './modules/multipartform.js'
 
@@ -33,6 +34,27 @@ const URL_OVERRIDE_OPTIONS = ['protocol', 'hostname', 'host', 'port', 'path', 'd
 const DEFAULT_RETRY_STATUS_CODES = [500, 502, 503, 504, 408]
 const IDEMPOTENT_METHODS = new Set(['GET', 'PUT', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE'])
 
+/**
+ * The response body as a readable stream, decompressed according to Content-Encoding.
+ * The pipeline destroys the decompressor if the response errors or closes early,
+ * so a truncated body fails the reader instead of leaving it waiting forever.
+ */
+function decodedBody(res, method) {
+    // These have no body even when they carry a Content-Encoding header, and zlib rejects empty input.
+    const hasBody = method !== 'HEAD' && res.statusCode >= 200 && res.statusCode !== 204 && res.statusCode !== 304 && res.headers['content-length'] !== '0'
+    const encoding = hasBody ? res.headers['content-encoding'] : undefined
+
+    let decompressor
+    if (encoding === 'br') decompressor = zlib.createBrotliDecompress()
+    else if (encoding === 'gzip') decompressor = zlib.createGunzip()
+    else if (encoding === 'deflate') decompressor = zlib.createInflate()
+    else return res
+
+    // Errors reach the reader through the decompressor's own 'error' event.
+    pipeline(res, decompressor, () => {})
+    return decompressor
+}
+
 function doRequest(url, requestOptions, body, timeout, maxBodySize) {
     const requester = url.startsWith('https:') ? https : http
 
@@ -41,21 +63,7 @@ function doRequest(url, requestOptions, body, timeout, maxBodySize) {
         let receivedLength = 0
 
         const request = requester.request(url, requestOptions, (res) => {
-            let output
-            switch (res.headers['content-encoding']) {
-                case 'br':
-                    output = res.pipe(zlib.createBrotliDecompress())
-                    break
-                case 'gzip':
-                    output = res.pipe(zlib.createGunzip())
-                    break
-                case 'deflate':
-                    output = res.pipe(zlib.createInflate())
-                    break
-                default:
-                    output = res
-                    break
-            }
+            const output = decodedBody(res, request.method)
 
             output.on('data', (data) => {
                 const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data)
@@ -302,21 +310,10 @@ function stream(url = '', options = {}) {
 
     return new Promise((resolve, reject) => {
         const request = requester.request(url, requestOptions, (res) => {
-            let output
-            switch (res.headers['content-encoding']) {
-                case 'br':
-                    output = res.pipe(zlib.createBrotliDecompress())
-                    break
-                case 'gzip':
-                    output = res.pipe(zlib.createGunzip())
-                    break
-                case 'deflate':
-                    output = res.pipe(zlib.createInflate())
-                    break
-                default:
-                    output = res
-                    break
-            }
+            const output = decodedBody(res, request.method)
+            // A decompression error is delivered to whoever reads the stream. Like a plain response,
+            // it must not take the process down if the caller attached no 'error' listener.
+            if (output !== res) output.on('error', () => {})
 
             resolve({
                 statusCode: res.statusCode,
