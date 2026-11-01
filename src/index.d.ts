@@ -8,8 +8,12 @@ export interface RequestOptions {
     headers?: Record<string, string>
     /** Request body — string or Buffer only. Plain objects throw an error. */
     body?: string | Buffer
-    /** Multipart form-data fields. Takes precedence over `body`. */
-    formData?: Record<string, string | Buffer | Readable>
+    /**
+     * Multipart form-data fields, as a plain object. Takes precedence over `body`.
+     * Strings, numbers, booleans, bigints, Buffers and Uint8Arrays are plain fields. Node and web streams are file parts.
+     * Anything else, including Blob, File, ArrayBuffer, other typed arrays and used streams, throws a TypeError.
+     */
+    formData?: Record<string, string | number | boolean | bigint | Uint8Array | Readable | ReadableStream>
     /**
      * Socket idle timeout in milliseconds (default: 30000). Set to 0 to disable.
      * It fires when no data moves, per request hop, so a slow but steady response is never stopped by it. See `deadline`.

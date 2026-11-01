@@ -39,7 +39,7 @@ import { stream } from 'imagic-request'
 | `options.method` | `string` | no | `'GET'` | HTTP method |
 | `options.headers` | `object` | no | `{}` | Request headers; `Content-Type` for multipart is auto-set when `formData` is present |
 | `options.body` | `string \| Buffer` | no | — | Raw body; plain objects throw `Error: body must be a string or Buffer` |
-| `options.formData` | `Record<string, string \| Buffer \| ReadableStream>` | no | — | Multipart fields; takes precedence over `body`. Strings and Buffers are plain fields (Buffers as exact bytes); streams are file parts |
+| `options.formData` | `Record<string, string \| number \| boolean \| bigint \| Uint8Array \| Readable \| ReadableStream>` | no | — | Multipart fields, as a plain object; takes precedence over `body`. Strings, numbers, booleans, bigints and Buffers/Uint8Arrays are plain fields (bytes exact); Node and web streams are file parts. Anything else (Blob, File, ArrayBuffer, other typed arrays, used streams, a `FormData` or `Map` as the form) throws a `TypeError` |
 | `options.timeout` | `number` | no | `30000` | Socket idle time in ms before the request is destroyed, per hop. A slow but steady response never trips it. Set to `0` to disable |
 | `options.deadline` | `number` | no | `0` | Total limit in ms across connecting, redirects, retries, backoff and body. `0` = none. Rejects with `name: 'TimeoutError'`, `code: 'ETIMEDOUT'` |
 | `options.dns` | `string` | no | — | Custom DNS server IP (optionally `ip:port`) for hostname resolution. IPv4 (A records) only |
