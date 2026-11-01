@@ -257,6 +257,65 @@ describe('redirect credential handling', () => {
         })
     })
 
+    describe('options the URL parser would otherwise miss', () => {
+        it('follows defaultPort when working out where a relative redirect leads', async () => {
+            reset()
+            const res = await Request(`http://127.0.0.1${via('/final')}`, { defaultPort: a.port, headers: { Authorization: SECRET }, timeout: 5000 })
+            assert.equal(res.buffer.toString(), 'A')
+            assert.equal(a.requests[1].url, '/final')
+            assert.equal(a.requests[1].headers.authorization, SECRET)
+        })
+
+        it('a URL port still wins over defaultPort', async () => {
+            reset()
+            const res = await Request(`${a.url}${via('/final')}`, { defaultPort: 1, timeout: 5000 })
+            assert.equal(res.buffer.toString(), 'A')
+        })
+
+        it('follows the defaultPort of a custom agent', async () => {
+            reset()
+            const agent = new http.Agent({ defaultPort: a.port })
+            try {
+                const res = await Request(`http://127.0.0.1${via('/final')}`, { agent, headers: { Authorization: SECRET }, timeout: 5000 })
+                assert.equal(res.buffer.toString(), 'A')
+                assert.equal(a.requests[1].headers.authorization, SECRET)
+            } finally {
+                agent.destroy()
+            }
+        })
+
+        it('treats a redirect away from a defaultPort target as cross-origin', async () => {
+            reset()
+            await Request(`http://127.0.0.1${via(`${b.url}/final`)}`, { defaultPort: a.port, headers: { Authorization: SECRET }, timeout: 5000 })
+            assertNotReceived(b.requests[0], SECRET, 'second origin')
+        })
+
+        it('does not send credentials to the URL host when hostname is unbracketed IPv6', async (t) => {
+            const real = await startServer((req, res) => {
+                if (req.url === '/final') respond(res, 200, {}, 'real')
+                else respond(res, 302, { Location: '/final' }, '')
+            }, undefined, '::1').catch(() => null)
+            if (!real) {
+                t.skip('IPv6 loopback is not available')
+                return
+            }
+            const decoy = await startServer((_req, res) => respond(res, 200, {}, 'decoy'), undefined, '127.0.0.1', real.port).catch(() => null)
+            if (!decoy) {
+                await real.close()
+                t.skip('the same port is not free on 127.0.0.1')
+                return
+            }
+            try {
+                const res = await Request(`http://127.0.0.1:${real.port}/start`, { hostname: '::1', headers: { Authorization: SECRET }, timeout: 5000 })
+                assert.equal(res.buffer.toString(), 'real')
+                assert.deepEqual(decoy.requests, [])
+                assert.equal(real.requests[1].headers.authorization, SECRET)
+            } finally {
+                await Promise.all([real.close(), decoy.close()])
+            }
+        })
+    })
+
     describe('non-http(s) redirect targets', () => {
         for (const target of ['file:///etc/passwd', 'ftp://127.0.0.1/secret', 'data:text/plain,hi', 'javascript:alert(1)', 'gopher://127.0.0.1/']) {
             it(`refuses ${target}`, async () => {

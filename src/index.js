@@ -218,8 +218,10 @@ function withoutHeaders(headers, names) {
 function resolveTarget(url, options) {
     const target = new URL(url)
     if (options.protocol) target.protocol = options.protocol
-    if (options.hostname) target.hostname = options.hostname
-    if (options.port) target.port = options.port
+    // The hostname setter silently ignores an unbracketed IPv6 address.
+    if (options.hostname) target.hostname = options.hostname.includes(':') && !options.hostname.startsWith('[') ? `[${options.hostname}]` : options.hostname
+    const port = options.port || target.port || options.defaultPort || options.agent?.defaultPort
+    if (port) target.port = port
     if (options.path) {
         const query = options.path.indexOf('?')
         target.pathname = query === -1 ? options.path : options.path.slice(0, query)

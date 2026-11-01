@@ -7,7 +7,7 @@ import net from 'node:net'
  * Start a real loopback HTTP server that records every request it receives.
  * `handler(req, res, record)` is called after the request body has been read.
  */
-export async function startServer(handler, createServer = http.createServer) {
+export async function startServer(handler, createServer = http.createServer, host = '127.0.0.1', listenPort = 0) {
     const requests = []
     const server = createServer((req, res) => {
         const chunks = []
@@ -25,13 +25,16 @@ export async function startServer(handler, createServer = http.createServer) {
             handler(req, res, record)
         })
     })
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+    await new Promise((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(listenPort, host, resolve)
+    })
     const { port } = server.address()
     return {
         server,
         port,
         requests,
-        url: `http://127.0.0.1:${port}`,
+        url: `http://${host.includes(':') ? `[${host}]` : host}:${port}`,
         close() {
             server.closeAllConnections?.()
             return new Promise((resolve) => server.close(resolve))
