@@ -170,6 +170,15 @@ function doRequest(url, requestOptions, body, timeout, maxBodySize) {
     })
 }
 
+/** node:url puts the whole URL, userinfo included, on the error it throws. Callers log errors, so keep that out. */
+function assertValidUrl(url) {
+    if (!URL.canParse(url)) {
+        const err = new TypeError('Invalid URL')
+        err.code = 'ERR_INVALID_URL'
+        throw err
+    }
+}
+
 /** A `lookup` for node:net that asks one DNS server. Node requests every address (`all: true`) by default. */
 function createLookup(server) {
     const resolver = new dns.Resolver()
@@ -224,6 +233,7 @@ async function Request(url = '', options = {}) {
 
 async function sendRequest(url, options, form) {
     if (typeof url !== 'string') throw new Error('URL must be a string')
+    assertValidUrl(url)
 
     const requestOptions = {
         ...options,
@@ -318,6 +328,7 @@ async function sendRequest(url, options, form) {
             }
 
             const from = resolveTarget(currentUrl, opts)
+            if (!URL.canParse(res.headers.location, from)) throw new Error('Redirect response has an invalid Location header')
             const to = new URL(res.headers.location, from)
             if (to.protocol !== 'http:' && to.protocol !== 'https:') {
                 throw new Error(`Refusing to follow redirect to unsupported protocol "${to.protocol}"`)
@@ -423,6 +434,8 @@ function sendStreamRequest(url, options, form) {
     const requester = url.startsWith('https:') ? https : http
 
     return new Promise((resolve, reject) => {
+        assertValidUrl(url)
+
         let output
 
         const request = requester.request(url, requestOptions, (res) => {

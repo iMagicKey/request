@@ -146,6 +146,7 @@ const res = await Request('https://example.com', {
 - Default timeout is 30s of socket inactivity, not a total limit; set `timeout: 0` to disable. Use `deadline` for a total limit
 - `maxBodySize` defaults to unlimited, so a hostile server can exhaust memory unless it is set
 - HTTP 4xx/5xx responses do **not** reject the promise; check `res.statusCode` manually
+- Errors never carry the request URL: an invalid URL or `Location` rejects with a fresh error, without Node's `input` and `base` properties
 - On network error, `err.buffer` contains any bytes received before the failure
 - On timeout, rejects with `Error: Request timed out` (no partial buffer)
 - A 101 protocol switch or any reply to `CONNECT` rejects with `Unexpected <status> response`, and its socket is destroyed: upgrades and tunnels are not supported
